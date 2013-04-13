@@ -1,4 +1,4 @@
-from collections import Counter
+from collections import Counter, deque
 
 from link import Packet
 from sim import scheduler, logger
@@ -54,7 +54,7 @@ class TcpSocket(Socket):
 
 	ithresh = 96000
 
-	def __init__(self, host, rtt=5.):
+	def __init__(self, host, rtt=8.):
 		"""Create a TcpSocket."""
 		Socket.__init__(self, host)
 		self.inc = []           #incoming buffer
@@ -62,7 +62,7 @@ class TcpSocket(Socket):
 		self.out = []           #outgoing buffer
 		self.out_i = 0          #length of bytes sent
 		self.out_ack_i = 0      #length of bytes acknowledged
-		self.out_time = []      #time last sent
+		self.out_time = deque() #time last sent
 		self.cwnd = 15000       #window size
 		self.ssthresh = TcpSocket.ithresh #slow start threshold
 		self.state = 'CLOSED'   #TCP state
@@ -185,15 +185,18 @@ class TcpSocket(Socket):
 		"""Attempt to send."""
 		#copy data to buffer
 		self.out += data
-		self.out_time += [None] * len(data)
+		
+		#limits
+		end = min(self.out_ack_i+self.cwnd, len(self.out))
+		if end <= self.out_i:
+			return
 		
 		#send data
-		end = min(self.out_ack_i+self.cwnd, len(self.out))
 		for seq in xrange(self.out_i, end, TcpPacket.mss):
 			seq_end = min(seq+TcpPacket.mss, end)
 			message = ''.join(self.out[seq:seq_end])
 			self.sched_send(TcpPacket(self.local, self.remote, message, seq_num=seq))
-		self.out_time[self.out_i:end] = [scheduler.get_time()] * (end - self.out_i)
+		self.out_time.appendleft(scheduler.get_time())
 		self.out_i = end
 		
 		#add timeout due to loss
@@ -202,18 +205,19 @@ class TcpSocket(Socket):
 				del self.loss_event
 				if self.out_ack_i <= i:
 					self.__loss()
-				elif self.out_i > i:
+				elif self.out_time:
 					self.loss_event = scheduler.add_abs(
 						timeout
 						, (self.out_i,)
-						, time=self.out_time[self.out_i]
+						, time=self.out_time.pop()
 					)
 			self.loss_event = scheduler.add(timeout, delay=self.timeout)
 
 	def __loss(self):
 		"""Do TCP Tahoe loss."""
+		self.ack_counts.clear()
 		self.out_i = self.out_ack_i
-		self.out_time[self.out_i:] = [None] * (len(self.out_time) - self.out_i)
+		self.out_time.clear()
 		self.ssthresh = max(self.cwnd/2, TcpPacket.mss)
 		self.cwnd = TcpPacket.mss
 		self.__try_send()
@@ -256,7 +260,6 @@ class TcpSocket(Socket):
 			self.ack_counts[packet.ack_num] += 1
 			if self.ack_counts[packet.ack_num] >= 3: #triple ACKs
 				if hasattr(self, 'loss_event'):
-					self.ack_counts.clear()
 					scheduler.cancel(self.loss_event)
 					del self.loss_event
 				self.__loss()

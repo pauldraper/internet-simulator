@@ -102,8 +102,8 @@ if __name__ == '__main__':
 	host2 = Host('101.0.0.0')
 	link1 = Link(host1, host2, 0.5, 100)
 	link2 = Link(host2, host1, 0.5, 100)
-	link1.loss = .1
-	link2.loss = .1
+	link1.loss = .0
+	link2.loss = .0
 
 	logger.level = 2
 	
