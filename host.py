@@ -43,7 +43,7 @@ class Host:
 
 	def get_links(self, ip):
 		"""Return the links that are connected to this Host."""
-		host = self.getHost(ip)
+		host = self.get_host(ip)
 		return (l for l in self.links if l.dest == host)
 
 	# data transfer
