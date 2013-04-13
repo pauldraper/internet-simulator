@@ -36,6 +36,7 @@ class Link:
 		self.bandwidth = bandwidth
 		self.busy = False
 		self.queue = deque()
+		self.max_queue_size = 50
 		self.id = Link.id_counter
 		self.loss = 0
 		self.reorder = 0
@@ -43,7 +44,9 @@ class Link:
 
 	def enqueue(self, packet):
 		"""Called to place this packet in the queue."""
-		if random.random() < self.loss:
+		if self.max_queue_size is not None and self.max_queue_size <= len(self.queue):
+			log('queue-overflow %d %d' % (self.id, packet.id))
+		elif random.random() < self.loss:
 			log('packet-loss %d %d' % (self.id, packet.id))
 		else:
 			log('queue-start %d %d' % (self.id, packet.id))
