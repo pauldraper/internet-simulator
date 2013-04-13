@@ -1,9 +1,9 @@
-from datetime import datetime, timedelta
+from datetime import datetime
 import random
 import sched
 
 class Scheduler:
-	 """Schedules events for the simulator."""
+	"""Schedules events for the simulator."""
 
 	def __init__(self):
 		"""Create an empty scheduler."""
@@ -39,9 +39,9 @@ scheduler = Scheduler() #singleton
 class Generator:
 	"""Generates repeated events."""
 
-	def __init__(self, avg_delay, duration, next=(lambda event,args: (event,args))):
+	def __init__(self, avg_delay, duration, next_event=(lambda event,args: (event,args))):
 		"""Create new Generator with the given parameters."""
-		self.next = next
+		self.next_event = next_event
 		self.avg_delay = avg_delay
 		self.end_time = duration + scheduler.get_time()
 
@@ -51,7 +51,7 @@ class Generator:
 		if delay + scheduler.get_time() >= self.end_time:
 			return
 		scheduler.add(event, args, delay)
-		scheduler.add(self.generate, list(self.next(event, args)), delay)
+		scheduler.add(self.generate, list(self.next_event(event, args)), delay)
 
 	
 class Logger:

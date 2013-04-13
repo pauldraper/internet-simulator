@@ -1,8 +1,6 @@
 from abc import ABCMeta, abstractmethod
-from collections import deque
 
-from link import Packet
-from sim import scheduler, logger
+from sim import logger
 
 log = lambda x: logger.log(x, 2)
 

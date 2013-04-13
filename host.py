@@ -1,5 +1,5 @@
 from link import Link
-from sim import scheduler, logger
+from sim import logger
 from tcp import TcpSocket
 from udp import UDPSocket
 
@@ -67,11 +67,11 @@ class Host:
 
 	# socket
 
-	def socket(self, domain, type):
+	def socket(self, domain, sock_type):
 		"""Create and return a socket of the appropriate type."""
-		if domain == AF_INET and type == SOCK_DGRAM:
+		if domain == AF_INET and sock_type == SOCK_DGRAM:
 			return UDPSocket(self)
-		elif domain == AF_INET and type == SOCK_STREAM:
+		elif domain == AF_INET and sock_type == SOCK_STREAM:
 			return TcpSocket(self)
 
 	def getAvailableUDP(self):

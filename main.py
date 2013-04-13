@@ -1,8 +1,6 @@
 from datetime import datetime
-import random
 
 from link import *
-from sim import Generator, scheduler, logger
 from host import *
 
 log = lambda x: logger.log(x, 1)
@@ -85,7 +83,7 @@ def demo_client_server(host1, host2, n_client=1, n_server=1):
 	# intialize sockets
 	clients = [
 		FileClient(host1, (server_ip, 80+random.randrange(n_server)))
-		for i in xrange(0,n_client)
+		for _ in xrange(0,n_client)
 	]
 	servers = [
 		Server(host2, 80+i)
