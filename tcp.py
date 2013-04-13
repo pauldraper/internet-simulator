@@ -196,7 +196,7 @@ class TcpSocket(Socket):
 			seq_end = min(seq+TcpPacket.mss, end)
 			message = ''.join(self.out[seq:seq_end])
 			self.sched_send(TcpPacket(self.local, self.remote, message, seq_num=seq))
-		self.out_time.appendleft(scheduler.get_time())
+		self.out_time.appendleft(scheduler.get_time() + self.timeout)
 		self.out_i = end
 		
 		#add timeout due to loss
@@ -211,7 +211,7 @@ class TcpSocket(Socket):
 						, (self.out_i,)
 						, time=self.out_time.pop()
 					)
-			self.loss_event = scheduler.add(timeout, delay=self.timeout)
+			self.loss_event = scheduler.add_abs(timeout, (self.out_i,), time=self.out_time.pop())
 
 	def __loss(self):
 		"""Do TCP Tahoe loss."""
