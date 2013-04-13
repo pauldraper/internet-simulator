@@ -1,12 +1,13 @@
 from __future__ import division
+from collections import deque
 import random
 
-from collections import deque
 from sim import scheduler, logger
 
 log = lambda x: logger.log(x, 3)
 
 class Packet:
+	"""Represents a transport-level packet."""
 	id_counter = 0
 
 	def __init__(self, protocol, origin, dest, message):
@@ -21,10 +22,14 @@ class Packet:
 	def size(self):
 		return (len(self.message) if self.message else 0) + 4
 
-class Link: #(unidirectional)
+class Link:
+	"""Represents a unidirectional link."""
+
 	id_counter = 0
 
 	def __init__(self, source, dest, prop_delay, bandwidth):
+		"""Creates a Link between the specified Hosts, that has the given performance.
+		(This also adds the Link to the source Host's outgoing links.)"""
 		source.links.append(self)
 		self.dest = dest
 		self.prop_delay = prop_delay
@@ -37,6 +42,7 @@ class Link: #(unidirectional)
 		Link.id_counter += 1
 
 	def enqueue(self, packet):
+		"""Called to place this packet in the queue."""
 		if random.random() < self.loss:
 			log('packet-loss %d %d' % (self.id, packet.id))
 		else:
@@ -44,22 +50,25 @@ class Link: #(unidirectional)
 			if self.busy:
 				self.queue.appendleft(packet)
 			else:
-				self.transmit(packet)
+				self.__transmit(packet)
 
-	def transmit(self, packet):
+	def __transmit(self, packet):
+		"""Begin packet transmission (and schedule propogation)."""
 		log('queue-end %d %d' % (self.id, packet.id), )
-		log('transmit-start %d %d' % (self.id, packet.id), )
+		log('__transmit-start %d %d' % (self.id, packet.id), )
 		self.busy = True
-		scheduler.add(self.propogate, [packet], packet.size/self.bandwidth)
+		scheduler.add(self.__propogate, [packet], packet.size/self.bandwidth)
 
-	def propogate(self, packet):
-		log('transmit-end %d %d' % (self.id, packet.id), )
-		log('propogate-start %d %d' % (self.id, packet.id), )
-		scheduler.add(self.arrive, [packet], self.prop_delay)
+	def __propogate(self, packet):
+		"""Begin packet propogation (and schedule tranmission)."""
+		log('__transmit-end %d %d' % (self.id, packet.id), )
+		log('__propogate-start %d %d' % (self.id, packet.id), )
+		scheduler.add(self.__arrive, [packet], self.prop_delay)
 		self.busy = False
 		if self.queue:
-			self.transmit(self.queue.pop())
+			self.__transmit(self.queue.pop())
 
-	def arrive(self, packet):
-		log('propogate-end %d %d' % (self.id, packet.id), )
+	def __arrive(self, packet):
+		"""Delivery packet to destination Host."""
+		log('__propogate-end %d %d' % (self.id, packet.id), )
 		self.dest.received(packet)

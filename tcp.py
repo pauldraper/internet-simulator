@@ -5,10 +5,12 @@ from socket import Socket
 log = lambda x: logger.log(x, 2)
 
 class TcpPacket(Packet):
+	"""Represents a TCP packet."""
 
 	max_len = 1500
 
 	def __init__(self, origin, dest, message=None, seq_num=None, ack_num=None, syn=False, fin=False):
+		"""Create a TCP packet."""
 		Packet.__init__(self, 'Tcp', origin, dest, message)
 		self.seq_num = seq_num
 		self.ack_num = ack_num
@@ -18,9 +20,11 @@ class TcpPacket(Packet):
 
 	@property
 	def size(self):
+		"""Return the size of this TcpPacket, in bytes."""
 		return Packet.size.fget(self) + 8
 		
 	def __str__(self):
+		"""Return a string representation of this TcpPacket."""
 		s = ''
 		
 		flags = []
@@ -44,8 +48,10 @@ class TcpPacket(Packet):
 
 
 class TcpSocket(Socket):
+	"""Represents a TcpSocket."""
 
 	def __init__(self, host, rtt=5.):
+		"""Create a TcpSocket."""
 		Socket.__init__(self, host)
 		self.inc = [] #incoming buffer
 		self.inc_i = 0         #length of in-order bytes
@@ -58,60 +64,68 @@ class TcpSocket(Socket):
 		self.timeout = rtt * 1.5 #timeout (for all events)
 
 	def log(self, s):
+		"""Logs a message, including details about this TcpSocket."""
 		local_str = '%s:%d' % (self.local[0], self.local[1])
 		return log('%15s %s' %  (local_str, s))
 
-	# PUBLIC
+	# public methods
 
-	#(server) binds the socket to the requested port
 	def bind(self, (ip, port)):
+		"""Bind the socket to the specified port. (Called by server.)"""
 		self.local = (ip, port)
 		self.host.port_to_tcp[port] = self
 	
-	#(server) listens for connections to this socket
 	def listen(self):
+		"""Listens for connections to the bound port. (Called by server.)"""
 		if not hasattr(self, 'local'):
 			raise Exception('Must call bind() first')
 		self.state = 'LISTEN'
 
-	#(server) wait until connection has been established and pass the socket to callback
 	def accept(self, callback):
+		"""Call the callback when a connection has been established. (Called by server.)
+		The callback will be passed the newly create TcpSocket.
+		"""
 		if self.state != 'LISTEN':
 			raise Exception('Must call listen() first')
 		self.callback = callback
 
-	#(client) initiate connection and callback when the connection has been established; the
-	# callback is passed a boolean, indicating whether the connection was sucessful
 	def connect(self, (ip, port), callback):
+		"""Call the callback when a connection to the specified address has been established.
+		(Called by client.) The	callback is passed a boolean, indicating whether the connection was
+		sucessful.
+		"""
 		self.local = self.host.getAvailableTcp()
 		self.host.port_to_tcp[self.local[1]] = self
 		self.remote = (ip, port)
 		self.callback = callback
 		self.__conn()
 
-	#(client and server) send the message
 	def sendall(self, message, callback):
+		"""Send the message, and then call the callback when the entire message has been
+		acknowledged.
+		"""
 		if not hasattr(self, 'remote'):
 			raise Exception('Must call connect() first')
 		self.send_callback = callback
 		self.__try_send(message)
 	
-	#(client and server) wait until at least one byte is received, and call callback when that happens
 	def recv(self, callback):
+		"""Wait until at least one byte is received, and then call the callback. The callback is
+		passed the message that was received."""
 		self.recv_callback = callback
 		if self.state == 'ESTABLISHED' or self.state == 'CLOSE_WAIT':
 			self.__try_read()
 		else:
 			scheduler.add(callback, (None,))
 	
-	#(client and server) close the connection, and call callback when that finishes
 	def close(self):
+		"""Close the connection."""
 		self.__end()
 
 	# I/O
 
-	#called by host when incoming packet to this socket
 	def _buffer(self, packet):
+		"""Called by the Host to pass a packet to this TcpSocket."""
 		self.log('<- %s' % (packet,))    
 		if packet.syn:
 			if self.state == 'LISTEN':
@@ -131,16 +145,19 @@ class TcpSocket(Socket):
 		else:
 			self.__data(packet)
 
-	#called by this socket; schedule the packet to be sent (debugging info too)
 	def sched_send(self, packet):
+		"""Enque the packet on the appropriate link.
+		This function is identical to Socket.scheduler_send, except for its debugging.
+		"""
 		self.log('-> %s' % (packet,))
 		Socket.schedule_send(self, packet)
 		
 	def sched_closed(self):
+		"""Schedule a transition to the closed state."""
 		scheduler.add(self.__closed, delay=4*self.timeout)
 
-	#attempt to read
 	def __try_read(self, ack=False):
+		"""Attempt to read."""
 		#find last in-order received
 		recv_len = next(
 			(i for i,b in enumerate(self.inc[self.inc_i:], start=self.inc_i) if b is None),
@@ -156,8 +173,8 @@ class TcpSocket(Socket):
 			scheduler.add(self.recv_callback, (''.join(bytes),))
 			del self.recv_callback
 			
-	#attempt to send
 	def __try_send(self, data=''):
+		"""Attempt to send."""
 		#start of data to send
 		start = min(self.out_i+self.out_window, len(self.out))
 		#copy data to buffer
@@ -180,10 +197,10 @@ class TcpSocket(Socket):
 				lambda p_end=p_end: self.out_i < p_end
 			)
 
-	# CHANGE STATE
+	# state changes
 
-	#instigate start of connection
 	def __conn(self):
+		"""Initiate connection start."""
 		if self.state == 'CLOSED':
 			self.state = 'SYN_SENT'
 			def set_failed(self=self):
@@ -196,8 +213,8 @@ class TcpSocket(Socket):
 			)	
 			self.log('CLOSED : SYN -> SYN_SENT')
 
-	#handle syn
 	def __syn(self, packet):
+		"""Handle a SYN packet."""
 		if self.state == 'LISTEN':
 			self.remote = packet.origin
 			self.state = 'SYN_RCVD'
@@ -207,8 +224,8 @@ class TcpSocket(Socket):
 				lambda: self.state == 'SYN_RCVD'
 			)
 
-	#handle ack
 	def __ack(self, packet):
+		"""Handle an ACK packet."""
 		if self.state == 'SYN_RCVD':
 			scheduler.add(self.callback, (self,packet.origin))
 			del self.callback
@@ -238,8 +255,8 @@ class TcpSocket(Socket):
 			scheduler.add(self.send_callback)
 			del self.send_callback
 
-	#handle syn+ack
 	def __syn_ack(self, packet):
+		"""Handle a SYN+ACK packet."""
 		if self.state == 'SYN_SENT':
 			self.sched_send(TcpPacket(self.local, self.remote, ack_num=0))
 			scheduler.add(self.callback)
@@ -247,8 +264,8 @@ class TcpSocket(Socket):
 			self.state = 'ESTABLISHED'
 			self.log('SYN_SENT <- SYN_ACK : ESTABLISHED -> ACK')
 
-	#handle data packet
 	def __data(self, packet):
+		"""Handle a data packet."""
 		if self.state == 'SYN_RCVD':
 			scheduler.add(self.callback, (self,packet.origin))
 			del self.callback
@@ -258,8 +275,8 @@ class TcpSocket(Socket):
 		self.inc[packet.seq_num:packet.seq_num+len(packet.message)] = packet.message
 		self.__try_read(ack=True)
 
-	#handle fin
 	def __fin(self, packet):
+		"""Handle a FIN packet."""
 		if hasattr(self, 'recv_callback'):
 			scheduler.add(self.recv_callback, (None,))
 			del self.recv_callback
@@ -275,8 +292,8 @@ class TcpSocket(Socket):
 			self.sched_closed()
 		self.sched_send(TcpPacket(self.local, self.remote, ack_num=packet.seq_num+1))
 
-	#instigate end of connection
 	def __end(self):
+		"""Close this end of a connection."""
 		if self.state == 'ESTABLISHED' or self.state == 'SYN_RCVD':
 			self.state = 'FIN_WAIT_1'
 			self.log('ESTABLISHED : FIN -> FIN_WAIT_1')
@@ -293,13 +310,14 @@ class TcpSocket(Socket):
 			)
 
 	def __closed(self):
+		"""Set state to CLOSED."""
 		self.state = 'CLOSED'
 		self.log('TIME_WAIT : CLOSED')
 
-	# HELPER
+	# utility
 
-	#execute function at intervals specified by self.timeout until the predicate is false
 	def __do_while(self, f, pred=lambda:True, failure=lambda:None, n=20):
+		"""Execute function at intervals specified by self.timeout until the predicate is false."""
 		if n <= 0:
 			failure()
 		elif pred():

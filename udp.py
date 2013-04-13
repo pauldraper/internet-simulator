@@ -1,3 +1,5 @@
+"""This has fallen into disuse and its functionality needs to be verfied."""
+
 from link import Packet
 from sim import scheduler, logger
 from socket import Socket
