@@ -58,6 +58,7 @@ class TimeClient:
 			print self.buffer
 			self.socket.close()
 			
+
 class FileClient:
 
 	def __init__(self, host, (ip, port)):
@@ -76,6 +77,7 @@ class FileClient:
 		else:
 			self.file.close()
 			self.socket.close()
+
 
 def demo_client_server(host1, host2, n_client=1, n_server=1):
 	scheduler.__init__()

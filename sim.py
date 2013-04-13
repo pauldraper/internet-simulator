@@ -21,6 +21,13 @@ class Scheduler:
 	def add(self, handler, args=(), delay=0, priority=1):
 		"""Schedule a function call."""
 		return self.scheduler.enter(delay, priority, handler, args)
+	
+	def add_abs(self, handler, args=(), time=None, priority=1):
+		"""Schedule a function call, using an absolute time."""
+		return self.scheduler.enterabs(time, priority, handler, args)
+	
+	def cancel(self, event):
+		self.scheduler.cancel(event)
 
 	def cancel_all(self):
 		"""Cancel all scheduled events."""

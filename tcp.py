@@ -1,3 +1,5 @@
+from collections import Counter
+
 from link import Packet
 from sim import scheduler, logger
 from socket import Socket
@@ -7,7 +9,7 @@ log = lambda x: logger.log(x, 2)
 class TcpPacket(Packet):
 	"""Represents a TCP packet."""
 
-	max_len = 1500
+	mss = 1500
 
 	def __init__(self, origin, dest, message=None, seq_num=None, ack_num=None, syn=False, fin=False):
 		"""Create a TCP packet."""
@@ -50,15 +52,21 @@ class TcpPacket(Packet):
 class TcpSocket(Socket):
 	"""Represents a TcpSocket."""
 
+	ithresh = 96000
+
 	def __init__(self, host, rtt=5.):
 		"""Create a TcpSocket."""
 		Socket.__init__(self, host)
-		self.inc = [] #incoming buffer
-		self.inc_i = 0         #length of in-order bytes
-		self.out = [] #outgoing buffer
-		self.out_i = 0         #length of sent bytes
-		self.out_window = 15000 #window size
-		self.state = 'CLOSED'  #Tcp state
+		self.inc = []           #incoming buffer
+		self.inc_i = 0          #length of in-order bytes
+		self.out = []           #outgoing buffer
+		self.out_i = 0          #length of bytes sent
+		self.out_ack_i = 0      #length of bytes acknowledged
+		self.out_time = []      #time last sent
+		self.cwnd = 15000       #window size
+		self.ssthresh = TcpSocket.ithresh #slow start threshold
+		self.state = 'CLOSED'   #TCP state
+		self.ack_counts = Counter()
 		self.rtt = rtt
 		self.rtt_dict = {}
 		self.timeout = rtt * 1.5 #timeout (for all events)
@@ -175,28 +183,41 @@ class TcpSocket(Socket):
 			
 	def __try_send(self, data=''):
 		"""Attempt to send."""
-		#start of data to send
-		start = min(self.out_i+self.out_window, len(self.out))
 		#copy data to buffer
 		self.out += data
-		self.out_i = next(
-			(i for i,b in enumerate(self.out[self.out_i:], start=self.out_i) if b is not None),
-			len(self.out)
-		)
-		#end of data to send
-		end = min(self.out_i+self.out_window, len(self.out))
+		self.out_time += [None] * len(data)
+		
 		#send data
-		for p_start in xrange(start, end, TcpPacket.max_len):
-			p_end = min(end,p_start+TcpPacket.max_len)
-			p = TcpPacket(self.local, self.remote, ''.join(self.out[p_start:p_end]), seq_num=p_start)
-			def s(p=p):
-				self.rtt_dict[p_end] = scheduler.get_time()
-				self.sched_send(p)
-			self.__do_while(
-				s,
-				lambda p_end=p_end: self.out_i < p_end
-			)
+		end = min(self.out_ack_i+self.cwnd, len(self.out))
+		for seq in xrange(self.out_i, end, TcpPacket.mss):
+			seq_end = min(seq+TcpPacket.mss, end)
+			message = ''.join(self.out[seq:seq_end])
+			self.sched_send(TcpPacket(self.local, self.remote, message, seq_num=seq))
+		self.out_time[self.out_i:end] = [scheduler.get_time()] * (end - self.out_i)
+		self.out_i = end
+		
+		#add timeout due to loss
+		if not hasattr(self, 'loss_event'):	
+			def timeout(i=self.out_i):
+				del self.loss_event
+				if self.out_ack_i <= i:
+					self.__loss()
+				elif self.out_i > i:
+					self.loss_event = scheduler.add_abs(
+						timeout
+						, (self.out_i,)
+						, time=self.out_time[self.out_i]
+					)
+			self.loss_event = scheduler.add(timeout, delay=self.timeout)
 
+	def __loss(self):
+		"""Do TCP Tahoe loss."""
+		self.out_i = self.out_ack_i
+		self.out_time[self.out_i:] = [None] * (len(self.out_time) - self.out_i)
+		self.ssthresh = max(self.cwnd/2, TcpPacket.mss)
+		self.cwnd = TcpPacket.mss
+		self.__try_send()
+		
 	# state changes
 
 	def __conn(self):
@@ -232,13 +253,26 @@ class TcpSocket(Socket):
 			self.state = 'ESTABLISHED'
 			self.log('SYN_RCVD <- ACK : ESTABLISHED')
 		if packet.ack_num <= len(self.out):
-			diff = packet.ack_num - self.out_i
-			self.out[self.out_i:packet.ack_num] = (None,) * diff
-			self.__try_send()
-			if packet.ack_num in self.rtt_dict:
-				self.rtt = (self.rtt + scheduler.get_time() - self.rtt_dict[packet.ack_num]) / 2.
-				del self.rtt_dict[packet.ack_num]
-				self.timeout = self.rtt * 1.5
+			self.ack_counts[packet.ack_num] += 1
+			if self.ack_counts[packet.ack_num] >= 3: #triple ACKs
+				if hasattr(self, 'loss_event'):
+					self.ack_counts.clear()
+					scheduler.cancel(self.loss_event)
+					del self.loss_event
+				self.__loss()
+			elif packet.ack_num > self.out_ack_i:
+				#adjust cwnd
+				new_bytes = packet.ack_num - self.out_ack_i
+				self.cwnd += (
+					new_bytes if self.cwnd < self.ssthresh
+					else new_bytes * TcpPacket.mss / self.cwnd
+				)
+				self.out_ack_i = packet.ack_num
+				self.__try_send()
+			#if packet.ack_num in self.rtt_dict:
+				#self.rtt = (self.rtt + scheduler.get_time() - self.rtt_dict[packet.ack_num]) / 2.
+				#del self.rtt_dict[packet.ack_num]
+				#self.timeout = self.rtt * 1.5
 				#print self.rtt
 		elif self.state == 'FIN_WAIT_1':
 			self.state = 'FIN_WAIT_2'
