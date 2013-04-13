@@ -57,15 +57,15 @@ class Link:
 
 	def __transmit(self, packet):
 		"""Begin packet transmission (and schedule propogation)."""
-		log('queue-end %d %d' % (self.id, packet.id), )
-		log('__transmit-start %d %d' % (self.id, packet.id), )
+		log('queue-end %d %d' % (self.id, packet.id))
+		log('__transmit-start %d %d' % (self.id, packet.id))
 		self.busy = True
 		scheduler.add(self.__propogate, [packet], packet.size/self.bandwidth)
 
 	def __propogate(self, packet):
 		"""Begin packet propogation (and schedule tranmission)."""
-		log('__transmit-end %d %d' % (self.id, packet.id), )
-		log('__propogate-start %d %d' % (self.id, packet.id), )
+		log('__transmit-end %d %d' % (self.id, packet.id))
+		log('__propogate-start %d %d' % (self.id, packet.id))
 		scheduler.add(self.__arrive, [packet], self.prop_delay)
 		self.busy = False
 		if self.queue:
@@ -73,5 +73,5 @@ class Link:
 
 	def __arrive(self, packet):
 		"""Delivery packet to destination Host."""
-		log('__propogate-end %d %d' % (self.id, packet.id), )
+		log('__propogate-end %d %d' % (self.id, packet.id))
 		self.dest.received(packet)

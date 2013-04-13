@@ -360,6 +360,3 @@ class TcpSocket(Socket):
 		elif pred():
 			f()
 			scheduler.add(self.__do_while, (f,pred,failure,n-1), self.timeout)
-
-		
-
