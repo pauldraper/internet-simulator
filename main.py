@@ -34,7 +34,7 @@ class Server:
 				if self.buffer[:4] == 'time':
 					self.socket.sendall('%s' % (datetime.now(),), self.socket.close)
 				elif self.buffer[:4] == 'file':
-					self.socket.sendall(open(self.buffer[5:-1], 'r').read(), self.socket.close)
+					self.socket.sendall(open(self.buffer[5:-1], 'rb').read(), self.socket.close)
 				else:
 					self.socket.sendall('unrecognized request', self.socket.close)
 					
