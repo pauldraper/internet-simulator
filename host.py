@@ -17,7 +17,7 @@ class Host:
 	ip_to_host = {} #maps from ip address to host
 
 	def __init__(self, ip):
-		"""Constuct a host with the given ip address."""
+		"""Construct a host with the given ip address."""
 		if ip in Host.ip_to_host:
 			raise Exception('duplicate ip address')
 		self.ip = ip
@@ -57,7 +57,7 @@ class Host:
 				self.port_to_upd[packet.dest[1]]._buffer(packet)
 			except KeyError:
 				pass
-		elif packet.protocol == 'Tcp':
+		elif packet.protocol == 'TCP':
 			try:
 				self.origin_to_tcp[packet.origin]._buffer(packet)
 			except KeyError:

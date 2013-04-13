@@ -13,7 +13,7 @@ class TcpPacket(Packet):
 
 	def __init__(self, origin, dest, message=None, seq_num=None, ack_num=None, syn=False, fin=False):
 		"""Create a TCP packet."""
-		Packet.__init__(self, 'Tcp', origin, dest, message)
+		Packet.__init__(self, 'TCP', origin, dest, message)
 		self.seq_num = seq_num
 		self.ack_num = ack_num
 		self.ack = ack_num is not None
