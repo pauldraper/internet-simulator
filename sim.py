@@ -1,5 +1,4 @@
-from datetime import datetime
-import random
+from __future__ import division
 import sched
 
 class Scheduler:
@@ -33,33 +32,92 @@ class Scheduler:
 		"""Cancel all scheduled events."""
 		map(self.scheduler.cancel, self.scheduler.queue)
 
-	def run(self, duration=None):
-		"""Run scheduled events."""
-		self.start_time = datetime.now()
-		if duration is not None:
-			self.scheduler.enter(duration, 0, self.cancel_all, [])
+class SleepException(Exception):
+	"""Thrown when sleep is needed."""
+	def __init__(self, timeout):
+		self.timeout = timeout	
+def sleep(timeout):
+	"""Sleep for timeout."""
+	raise SleepException(timeout)
+	return #In Python 3.3, simply use `yield from iter(())`
+	yield
+
+class WaitException(Exception):
+	"""Thrown when wait is needed."""
+	def __init__(self, lock, timeout=None):
+		self.lock = lock
+		self.timeout = timeout
+def wait(lock, timeout):
+	raise WaitException(lock, timeout)
+	return #In Python 3.3, simply use `yield from iter(())`
+	yield
+	
+class ResumeException(Exception):
+	"""Thrown when wait is needed."""
+	def __init__(self, lock, timeout, args):
+		self.lock = lock
+		self.args = args
+def resume(lock, *args):
+	raise ResumeException(lock, args)
+	return #In Python 3.3, simply use `yield from iter(())`
+	yield
+	
+class TimeoutException(Exception):
+	"""Thrown when timed out."""
+	pass
+
+class Simulator:
+	"""Controls function calls and flow."""
+
+	def __init__(self):
+		"""Creates a new Simulator."""
+		self.scheduler = Scheduler()
+	
+	def create_lock(self):
+		class Lock:
+			def __init__(self, start_time):
+				self.waiting = []
+				self.last_released = start_time
+		return Lock(self.scheduler.get_time())
+	
+	def new_thread(self, gen):
+		"""Add a new thread."""
+		self.__proceed([gen])
+		return gen
+		
+	def run(self):
+		"""Run the simulator to completion."""
 		self.scheduler.run()
-
-scheduler = Scheduler() #singleton
-
-
-class Generator:
-	"""Generates repeated events."""
-
-	def __init__(self, avg_delay, duration, next_event=(lambda event,args: (event,args))):
-		"""Create new Generator with the given parameters."""
-		self.next_event = next_event
-		self.avg_delay = avg_delay
-		self.end_time = duration + scheduler.get_time()
-
-	def generate(self, event, args):
-		"""Generate events."""
-		delay = random.expovariate(1./self.avg_delay)
-		if delay + scheduler.get_time() >= self.end_time:
+	
+	def __proceed(self, stack, action=lambda c: c.send(None)):
+		"""Perform next call."""
+		if not stack:
 			return
-		scheduler.add(event, args, delay)
-		scheduler.add(self.generate, list(self.next_event(event, args)), delay)
+		try:
+			next_call = action(stack[-1])
+		except StopIteration as e:
+			stack.pop()
+			self.__proceed(stack, lambda c: c.send(e.args))
+		except SleepException as e:
+			self.scheduler.add(self.__proceed, (stack,), e.timeout)
+		except WaitException as e:
+			e.lock.waiting.append(stack)
+			if e.timeout is not None:
+				start_time = self.scheduler.get_time()
+				def timed_out():
+					if start_time >= e.lock.last_released:
+						self.__proceed(stack, lambda c: c.throw(TimeoutException))
+				self.scheduler.add(timed_out, delay=e.timeout)
+		except ResumeException as e:
+			stacks, e.lock = e.lock, []
+			e.lock.last_released = self.scheduler.get_time()
+			for stack in stacks:
+				self.__proceed(stack, e.args)
+		else:
+			stack.append(next_call)
+			self.__proceed(stack)
 
+simulator = Simulator() #singleton
 	
 class Logger:
 	"""Logs messages."""
@@ -71,6 +129,6 @@ class Logger:
 	def log(self, text, level=1):
 		"""Log a message with the given level."""
 		if level <= self.level:
-			print '%15f %s' % (scheduler.get_time(), text)
+			print '%15f %s' % (simulator.scheduler.get_time(), text)
 
 logger = Logger() #singleton

@@ -2,8 +2,18 @@ from datetime import datetime
 
 from link import *
 from host import *
+from sim import simulator, sleep
 
 log = lambda x: logger.log(x, 1)
+
+def generate(self, function, args, avg_delay, duration):
+	"""Generate events with exponential distribution."""
+	frequency = 1 / avg_delay
+	end_time = duration + simulator.scheduler.get_time()
+	yield sleep(random.expovariate(frequency))
+	while end_time <= simulator.scheduler.get_time():
+		yield sleep(random.expovariate(frequency))
+		yield function(*args)
 
 class Server:
 

@@ -2,7 +2,7 @@ from __future__ import division
 from collections import deque
 import random
 
-from sim import scheduler, logger
+from sim import simulator, sleep, logger
 
 log = lambda x: logger.log(x, 3)
 
@@ -50,28 +50,26 @@ class Link:
 			log('packet-loss %d %d' % (self.id, packet.id))
 		else:
 			log('queue-start %d %d' % (self.id, packet.id))
-			if self.busy:
-				self.queue.appendleft(packet)
-			else:
-				self.__transmit(packet)
+			self.queue.appendleft(packet)
+			if not self.busy:
+				simulator.new_thread(self.__transmit(packet))
 
 	def __transmit(self, packet):
-		"""Begin packet transmission (and schedule propogation)."""
+		"""Transmit packet."""
+		packet = self.queue.pop()
 		log('queue-end %d %d' % (self.id, packet.id))
-		log('__transmit-start %d %d' % (self.id, packet.id))
+		
+		log('transmit-start %d %d' % (self.id, packet.id))
 		self.busy = True
-		scheduler.add(self.__propogate, [packet], packet.size/self.bandwidth)
-
-	def __propogate(self, packet):
-		"""Begin packet propogation (and schedule tranmission)."""
-		log('__transmit-end %d %d' % (self.id, packet.id))
-		log('__propogate-start %d %d' % (self.id, packet.id))
-		scheduler.add(self.__arrive, [packet], self.prop_delay)
+		yield sleep(packet.size / self.bandwidth)
+		log('transmit-end %d %d' % (self.id, packet.id))
+		
 		self.busy = False
 		if self.queue:
-			self.__transmit(self.queue.pop())
-
-	def __arrive(self, packet):
-		"""Delivery packet to destination Host."""
-		log('__propogate-end %d %d' % (self.id, packet.id))
-		self.dest.received(packet)
+			simulator.new_thread(self.__transmit())
+		
+		log('propogate-start %d %d' % (self.id, packet.id))
+		yield sleep(self.prop_delay)
+		log('propogate-end %d %d' % (self.id, packet.id))
+		
+		yield self.dest.received(packet)

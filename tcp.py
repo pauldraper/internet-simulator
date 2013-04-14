@@ -1,7 +1,7 @@
 from collections import Counter, deque
 
 from link import Packet
-from sim import scheduler, logger
+from sim import *
 from socket import Socket
 
 log = lambda x: logger.log(x, 2)
@@ -19,6 +19,12 @@ class TcpPacket(Packet):
 		self.ack = ack_num is not None
 		self.syn = syn
 		self.fin = fin
+		self.syn_event      = simulator.create_lock()
+		self.syn_ack_event  = simulator.create_lock()
+		self.ack_event      = simulator.create_lock()
+		self.data_event     = simulator.create_lock()
+		self.fin_event      = simulator.create_lock()
+		self.last_ack_event = simulator.create_lock()
 
 	@property
 	def size(self):
@@ -27,8 +33,6 @@ class TcpPacket(Packet):
 		
 	def __str__(self):
 		"""Return a string representation of this TcpPacket."""
-		s = ''
-		
 		flags = []
 		if self.syn:
 			flags.append('syn')
@@ -36,16 +40,14 @@ class TcpPacket(Packet):
 			flags.append('ack')
 		if self.fin:
 			flags.append('fin')
-		s += '-'.join(flags if flags else ['data'])
-		
+		s = '-'.join(flags if flags else ['data'])
 		if self.ack_num is not None:
-			s += ' %d' % (self.ack_num,)
+			s = '{} {}'.format(s, self.ack_num)
 		if self.seq_num is not None:
 			if self.message:
-				s += ' %d-%d' % (self.seq_num, self.seq_num+len(self.message)-1)
+				s = '{} {}-{}'.format(s, self.seq_num, self.seq_num+len(self.message)-1)
 			else:
-				s += ' %d' % (self.seq_num,)
-
+				s = '{} {}'.format(s, self.seq_num)
 		return s
 
 
@@ -73,8 +75,8 @@ class TcpSocket(Socket):
 
 	def log(self, s):
 		"""Logs a message, including details about this TcpSocket."""
-		local_str = '%s:%d' % (self.local[0], self.local[1])
-		return log('%15s %s' %  (local_str, s))
+		local_str = '{addr[0]}:{addr[1]}'.format(addr=self.local)
+		return log('{:15} {}'.format(local_str, s))
 
 	# public methods
 
@@ -90,179 +92,142 @@ class TcpSocket(Socket):
 		self.state = 'LISTEN'
 
 	def accept(self, callback):
-		"""Call the callback when a connection has been established. (Called by server.)
-		The callback will be passed the newly create TcpSocket.
-		"""
+		"""Accept a connection. The socket is returned."""
 		if self.state != 'LISTEN':
 			raise Exception('Must call listen() first')
-		self.callback = callback
-
-	def connect(self, (ip, port), callback):
-		"""Call the callback when a connection to the specified address has been established.
-		(Called by client.) The	callback is passed a boolean, indicating whether the connection was
-		sucessful.
-		"""
+		
+		packet = yield wait(self.syn_event)
+		self.state = 'SYN_RCVD'
+		self.log('LISTEN <- SYN : SYN_RECVD -> SYN+ACK')
+		self.__sched_send(TcpPacket(self.local, self.remote, seq_num=0, ack_num=0, syn=True))
+		
+		socket = TcpSocket(self.host, self.timeout)
+		socket.state = self.state
+		socket.local = self.local
+		socket.remote = packet.origin
+		self.host.origin_to_tcp[packet.origin] = socket
+		return socket
+		
+	def connect(self, (ip, port)):
+		"""Establish a connection to the specified address."""
+		assert self.state == 'CLOSED'
 		self.local = self.host.getAvailableTcp()
 		self.host.port_to_tcp[self.local[1]] = self
 		self.remote = (ip, port)
-		self.callback = callback
-		self.__conn()
+		
+		self.state = 'SYN_SENT'
+		self.log('CLOSED : SYN -> SYN_SENT')
+		def syn():
+			self.__sched_send(TcpPacket(self.local, self.remote, seq_num=0, syn=True))
+			return wait(self.syn_ack, self.timeout)
+		self.__attempt(syn, 10)
+		
+		self.state = 'ESTABLISHED'
+		self.log('SYN_SENT <- SYN_ACK : ESTABLISHED -> ACK')
+		self.__sched_send(TcpPacket(self.local, self.remote, ack_num=0))
 
-	def sendall(self, message, callback):
+	def sendall(self, message):
 		"""Send the message, and then call the callback when the entire message has been
 		acknowledged.
 		"""
 		if not hasattr(self, 'remote'):
 			raise Exception('Must call connect() first')
-		self.send_callback = callback
-		self.__try_send(message)
+		
+		self.out += message
+		while self.out_ack_i < len(self.out):			
+			end = min(self.out_ack_i+self.cwnd, self.out_i+self.mss, len(self.out))
+			while end <= self.out_i:
+				yield wait(self.ack_event)
+				end = min(self.out_ack_i+self.cwnd, self.out_i+self.mss, len(self.out))
+			message = ''.join(self.out[self.out_i:end])
+			self.__sched_send(TcpPacket(self.local, self.remote, message, seq_num=self.out_i))
+				
+			def loss(start=self.out_i, end=end):
+				yield wait(self.loss_event, self.timeout)
+				if start <= self.out_ack_i < end:
+					self.ack_counts.clear()
+					self.out_i = self.out_ack_i
+					self.out_time.clear()
+					self.ssthresh = max(self.cwnd/2, TcpPacket.mss)
+					self.cwnd = TcpPacket.mss
+					yield resume(self.ack_event)
+			simulator.new_thread(loss)
+			
+			self.out_i = end
 	
-	def recv(self, callback):
-		"""Wait until at least one byte is received, and then call the callback. The callback is
-		passed the message that was received."""
-		self.recv_callback = callback
-		if self.state == 'ESTABLISHED' or self.state == 'CLOSE_WAIT':
-			self.__try_read()
-		else:
-			scheduler.add(callback, (None,))
+	def __num_recv(self):
+		"""Return the number of in-order bytes received."""
+		return next(
+			(i for i,b in enumerate(self.inc[self.inc_i:], start=self.inc_i) if b is None),
+			len(self.inc)
+		)
+	
+	def recv(self):
+		"""Wait until at least one byte is received."""
+		i = self.__num_recv()
+		if not self.inc_i < i:
+			yield wait(self.recv_event)
+			i = self.__num_recv()	
+				
+		self.inc_i, message = i, ''.join(self.inc[self.inc_i:i])
+		return message
 	
 	def close(self):
-		"""Close the connection."""
-		self.__end()
+		"""Close this end of a connection."""
+		def fin():
+			self.__sched_send(TcpPacket(self.local, self.remote, seq_num=len(self.out), fin=True))
+			yield wait(self.last_ack_event, self.timeout)
+		
+		if self.state == 'ESTABLISHED' or self.state == 'SYN_RCVD':
+			self.state = 'FIN_WAIT_1'
+			self.log('ESTABLISHED : FIN -> FIN_WAIT_1')
+			self.__my_close()
+			self.__attempt(fin, 10)
+			yield wait(self.fin_event, self.timeout)
+			yield sleep(2*self.timeout)
+		elif self.state == 'CLOSE_WAIT':
+			self.state = 'LAST_ACK'
+			self.log('CLOSE_WAIT : FIN -> LAST_ACK')
+			self.__my_close()
+			self.__attempt(fin, 10)
+		self.state = 'CLOSED'
+		self.log('TIME_WAIT : CLOSED')
 
 	# I/O
 
-	def _buffer(self, packet):
-		"""Called by the Host to pass a packet to this TcpSocket."""
-		self.log('<- %s' % (packet,))    
-		if packet.syn:
-			if self.state == 'LISTEN':
-				s = TcpSocket(self.host, self.timeout)
-				s.state = self.state
-				s.local = self.local
-				s.remote = packet.origin
-				self.host.origin_to_tcp[packet.origin] = s
-				s.callback = self.callback
-				s.__syn(packet)
-			elif packet.ack:
-				self.__syn_ack(packet)
-		elif packet.ack:
-			self.__ack(packet)			
-		elif packet.fin:
-			self.__fin(packet)	
-		else:
-			self.__data(packet)
-
-	def sched_send(self, packet):
+	def __sched_send(self, packet):
 		"""Enque the packet on the appropriate link.
 		This function is identical to Socket.scheduler_send, except for its debugging.
 		"""
 		self.log('-> %s' % (packet,))
 		Socket.schedule_send(self, packet)
-		
-	def sched_closed(self):
-		"""Schedule a transition to the closed state."""
-		scheduler.add(self.__closed, delay=4*self.timeout)
 
-	def __try_read(self, ack=False):
-		"""Attempt to read."""
-		#find last in-order received
-		recv_len = next(
-			(i for i,b in enumerate(self.inc[self.inc_i:], start=self.inc_i) if b is None),
-			len(self.inc)
-		)
-		#acknowledge
-		if ack:
-			self.sched_send(TcpPacket(self.local, self.remote, ack_num=recv_len))
-		#callback
-		bytes = self.inc[self.inc_i:recv_len]
-		if bytes and hasattr(self, 'recv_callback'):
-			self.inc_i = recv_len
-			scheduler.add(self.recv_callback, (''.join(bytes),))
-			del self.recv_callback
-			
-	def __try_send(self, data=''):
-		"""Attempt to send."""
-		#copy data to buffer
-		self.out += data
-		
-		#limits
-		end = min(self.out_ack_i+self.cwnd, len(self.out))
-		if end <= self.out_i:
-			return
-		
-		#send data
-		for seq in xrange(self.out_i, end, TcpPacket.mss):
-			seq_end = min(seq+TcpPacket.mss, end)
-			message = ''.join(self.out[seq:seq_end])
-			self.sched_send(TcpPacket(self.local, self.remote, message, seq_num=seq))
-		self.out_time.appendleft(scheduler.get_time() + self.timeout)
-		self.out_i = end
-		
-		#add timeout due to loss
-		if not hasattr(self, 'loss_event'):	
-			def timeout(i=self.out_i):
-				del self.loss_event
-				if self.out_ack_i <= i:
-					self.__loss()
-				elif self.out_time:
-					self.loss_event = scheduler.add_abs(
-						timeout
-						, (self.out_i,)
-						, time=self.out_time.pop()
-					)
-			self.loss_event = scheduler.add_abs(timeout, (self.out_i,), time=self.out_time.pop())
-
-	def __loss(self):
-		"""Do TCP Tahoe loss."""
-		self.ack_counts.clear()
-		self.out_i = self.out_ack_i
-		self.out_time.clear()
-		self.ssthresh = max(self.cwnd/2, TcpPacket.mss)
-		self.cwnd = TcpPacket.mss
-		self.__try_send()
+	def _buffer(self, packet):
+		"""Called by the Host to pass a packet to this TcpSocket."""
+		self.log('<- %s' % (packet,))    
+		if packet.ack and packet.syn:
+			self.__syn_ack(packet)
+		elif packet.ack:
+			self.__ack(packet)
+		elif packet.syn:
+			self.__syn(packet)		
+		elif packet.fin:
+			self.__fin(packet)	
+		else:
+			self.__data(packet)
 		
 	# state changes
-
-	def __conn(self):
-		"""Initiate connection start."""
-		if self.state == 'CLOSED':
-			self.state = 'SYN_SENT'
-			def set_failed(self=self):
-				self.failed = True
-				scheduler.add(self.callback)
-			self.__do_while(
-				lambda: self.sched_send(TcpPacket(self.local, self.remote, seq_num=0, syn=True)),
-				lambda: self.state == 'SYN_SENT',
-				set_failed,
-			)	
-			self.log('CLOSED : SYN -> SYN_SENT')
-
-	def __syn(self, packet):
-		"""Handle a SYN packet."""
-		if self.state == 'LISTEN':
-			self.remote = packet.origin
-			self.state = 'SYN_RCVD'
-			self.log('LISTEN <- SYN : SYN_RECVD -> SYN+ACK')
-			self.__do_while(
-				lambda: self.sched_send(TcpPacket(self.local, self.remote, seq_num=0, ack_num=0, syn=True)),
-				lambda: self.state == 'SYN_RCVD'
-			)
 
 	def __ack(self, packet):
 		"""Handle an ACK packet."""
 		if self.state == 'SYN_RCVD':
-			scheduler.add(self.callback, (self,packet.origin))
-			del self.callback
 			self.state = 'ESTABLISHED'
 			self.log('SYN_RCVD <- ACK : ESTABLISHED')
+			yield resume(self.ack_event)
 		if packet.ack_num <= len(self.out):
 			self.ack_counts[packet.ack_num] += 1
 			if self.ack_counts[packet.ack_num] >= 3: #triple ACKs
-				if hasattr(self, 'loss_event'):
-					scheduler.cancel(self.loss_event)
-					del self.loss_event
-				self.__loss()
+				yield resume(self.loss_event)
 			elif packet.ack_num > self.out_ack_i:
 				#adjust cwnd
 				new_bytes = packet.ack_num - self.out_ack_i
@@ -271,7 +236,7 @@ class TcpSocket(Socket):
 					else new_bytes * TcpPacket.mss / self.cwnd
 				)
 				self.out_ack_i = packet.ack_num
-				self.__try_send()
+				yield resume(packet.ack_event)
 			#if packet.ack_num in self.rtt_dict:
 				#self.rtt = (self.rtt + scheduler.get_time() - self.rtt_dict[packet.ack_num]) / 2.
 				#del self.rtt_dict[packet.ack_num]
@@ -283,40 +248,29 @@ class TcpSocket(Socket):
 		elif self.state == 'CLOSING':
 			self.state = 'TIME_WAIT'
 			self.log('CLOSING <- ACK : TIME_WAIT')
-			self.sched_closed()
 		elif self.state == 'LAST_ACK':
 			self.state = 'CLOSED'
 			self.log('CLOSED <- ACK : CLOSED')
-
-		if hasattr(self, 'send_callback') and self.out_i == len(self.out):
-			scheduler.add(self.send_callback)
-			del self.send_callback
+		yield resume(self.ack_event)
 
 	def __syn_ack(self, packet):
 		"""Handle a SYN+ACK packet."""
 		if self.state == 'SYN_SENT':
-			self.sched_send(TcpPacket(self.local, self.remote, ack_num=0))
-			scheduler.add(self.callback)
-			del self.callback
 			self.state = 'ESTABLISHED'
 			self.log('SYN_SENT <- SYN_ACK : ESTABLISHED -> ACK')
+			self.__sched_send(TcpPacket(self.local, self.remote, ack_num=0))
+		yield resume(self.syn_ack_event)
 
 	def __data(self, packet):
 		"""Handle a data packet."""
-		if self.state == 'SYN_RCVD':
-			scheduler.add(self.callback, (self,packet.origin))
-			del self.callback
-			self.state = 'ESTABLISHED'
-			self.log('SYN_RCVD <- data : ESTABLISHED')
 		self.inc += (None,) * (packet.seq_num - len(self.inc))
 		self.inc[packet.seq_num:packet.seq_num+len(packet.message)] = packet.message
-		self.__try_read(ack=True)
+		ack_num = self.__num_recv()
+		self.__sched_send(TcpPacket(self.local, self.remote, ack_num=ack_num))
+		yield resume(self.data_event)
 
 	def __fin(self, packet):
 		"""Handle a FIN packet."""
-		if hasattr(self, 'recv_callback'):
-			scheduler.add(self.recv_callback, (None,))
-			del self.recv_callback
 		if self.state == 'ESTABLISHED':
 			self.state = 'CLOSE_WAIT'
 			self.log('ESTABLISHED <- FIN : ACK -> CLOSE_WAIT') 
@@ -326,37 +280,16 @@ class TcpSocket(Socket):
 		elif self.state == 'FIN_WAIT_2':
 			self.state = 'TIME_WAIT'
 			self.log('FIN_WAIT2 <- FIN : ACK -> TIME_WAIT') 
-			self.sched_closed()
-		self.sched_send(TcpPacket(self.local, self.remote, ack_num=packet.seq_num+1))
-
-	def __end(self):
-		"""Close this end of a connection."""
-		if self.state == 'ESTABLISHED' or self.state == 'SYN_RCVD':
-			self.state = 'FIN_WAIT_1'
-			self.log('ESTABLISHED : FIN -> FIN_WAIT_1')
-			self.__do_while(
-				lambda: self.sched_send(TcpPacket(self.local, self.remote, seq_num=len(self.out), fin=True)),
-				lambda: self.state == 'FIN_WAIT_1' or self.state == 'CLOSING'
-			)
-		elif self.state == 'CLOSE_WAIT':
-			self.state = 'LAST_ACK'
-			self.log('CLOSE_WAIT : FIN -> LAST_ACK')
-			self.__do_while(
-				lambda: self.sched_send(TcpPacket(self.local, self.remote, seq_num=len(self.out), fin=True)),
-				lambda: self.state == 'LAST_ACK'
-			)
-
-	def __closed(self):
-		"""Set state to CLOSED."""
-		self.state = 'CLOSED'
-		self.log('TIME_WAIT : CLOSED')
+		self.__sched_send(TcpPacket(self.local, self.remote, ack_num=packet.seq_num+1))
+		yield resume(self.fin_event)
 
 	# utility
 
-	def __do_while(self, f, pred=lambda:True, failure=lambda:None, n=20):
-		"""Execute function at intervals specified by self.timeout until the predicate is false."""
-		if n <= 0:
-			failure()
-		elif pred():
-			f()
-			scheduler.add(self.__do_while, (f,pred,failure,n-1), self.timeout)
+	def __attempt(self, f, attempts):
+		"""Attempt multiple times."""
+		for _ in xrange(attempts):
+			try:
+				return (yield f())
+			except TimeoutException:
+				pass
+		raise TimeoutException

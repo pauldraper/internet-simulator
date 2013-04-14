@@ -51,17 +51,19 @@ class Host:
 	def received(self, packet):
 		"""Called (by Link) to deliver a packet to this Host."""
 		if packet.dest[0] != self.ip:
-			raise Exception('this host does not have this ip %s' % (packet.dest[0],))
+			raise Exception(
+				'{host.ip} received packet for ip {packet.dest}'.format(host=self, packet=packet)
+			)
 		elif packet.protocol == 'UDP':
 			try:
-				self.port_to_upd[packet.dest[1]]._buffer(packet)
+				yield self.port_to_upd[packet.dest[1]]._buffer(packet)
 			except KeyError:
 				pass
 		elif packet.protocol == 'TCP':
 			try:
-				self.origin_to_tcp[packet.origin]._buffer(packet)
+				yield self.origin_to_tcp[packet.origin]._buffer(packet)
 			except KeyError:
-				self.port_to_tcp[packet.dest[1]]._buffer(packet)
+				yield self.port_to_tcp[packet.dest[1]]._buffer(packet)
 		else:
 			raise Exception("Unrecognized protocol")
 
