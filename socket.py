@@ -13,7 +13,7 @@ class Socket:
 		"""Create a socket, with the given host."""
 		self.host = host
 
-	def schedule_send(self, packet):
+	def sched_send(self, packet):
 		"""Enqueue the given Packet on the correct outbound Link, depending on the Packet's
 		destination address.
 		"""

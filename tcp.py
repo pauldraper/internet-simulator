@@ -1,4 +1,4 @@
-from collections import Counter, deque
+from collections import Counter, deque, OrderedDict
 
 from link import Packet
 from sim import *
@@ -9,7 +9,7 @@ log = lambda x: logger.log(x, 2)
 class TcpPacket(Packet):
 	"""Represents a TCP packet."""
 
-	mss = 1500
+	mss = 1500 #maximum segment size
 
 	def __init__(self, origin, dest, message=None, seq_num=None, ack_num=None, syn=False, fin=False):
 		"""Create a TCP packet."""
@@ -48,9 +48,7 @@ class TcpPacket(Packet):
 class TcpSocket(Socket):
 	"""Represents a TcpSocket."""
 
-	ithresh = 96000
-
-	def __init__(self, host, rtt=8.):
+	def __init__(self, host):
 		"""Create a TcpSocket."""
 		Socket.__init__(self, host)
 		self.inc = []           #incoming buffer
@@ -59,21 +57,23 @@ class TcpSocket(Socket):
 		self.out = []           #outgoing buffer
 		self.out_i = 0          #length of bytes sent
 		self.out_ack_i = 0      #length of bytes acknowledged
-		self.out_time = deque() #time last sent
 		self.cwnd = 15000       #window size
-		self.ssthresh = TcpSocket.ithresh #slow start threshold
+		self.ssthresh = 96000   #slow start threshold
 		self.state = 'CLOSED'   #TCP state
 		self.ack_counts = Counter()
-		self.rtt = rtt
-		self.rtt_dict = {}
-		self.timeout = rtt * 1.5 #timeout (for all events)
+		self.rtt = 8.           #estimated round trip time
+		self.rtt_dict = {}      #expected ack --> time sent
+		self.loss = self.tahoe_loss #TCP method for dealing with loss
 		self.syn_event      = simulator.create_lock()
 		self.syn_ack_event  = simulator.create_lock()
 		self.ack_event      = simulator.create_lock()
 		self.data_event     = simulator.create_lock()
 		self.fin_event      = simulator.create_lock()
-		self.last_ack_event = simulator.create_lock()
 		self.loss_event     = simulator.create_lock()
+
+	@property
+	def timeout(self):
+		return self.rtt * 1.5
 
 	def log(self, s):
 		"""Logs a message, including details about this TcpSocket."""
@@ -134,32 +134,19 @@ class TcpSocket(Socket):
 		"""
 		if not hasattr(self, 'remote'):
 			raise Exception('Must call connect() first')
-		
 		self.out += message
 		while self.out_ack_i < len(self.out):	
 			end = min(self.out_ack_i+self.cwnd, self.out_i+TcpPacket.mss, len(self.out))
 			if self.out_i < end:
 				message = self.out[self.out_i:end]
 				self.__sched_send(TcpPacket(self.local, self.remote, message, seq_num=self.out_i))
-					
-				def loss(start=self.out_i, end=end):
-					try:
-						yield wait(self.loss_event, self.timeout)
-					except TimeoutException:
-						pass
-					if start <= self.out_ack_i < end:
-						log('loss_event {} {} {}'.format(start, self.out_ack_i,end))
-						self.ack_counts.clear()
-						self.out_i = self.out_ack_i
-						self.out_time.clear()
-						self.ssthresh = int(max(self.cwnd/2, TcpPacket.mss))
-						self.cwnd = TcpPacket.mss
-						yield resume(self.ack_event)
-				simulator.new_thread(loss())
-				
+				if end not in self.rtt_dict:
+					self.rtt_dict[end] = simulator.scheduler.get_time()
+				simulator.new_thread(self.loss(self.out_i, end))
 				self.out_i = end
 			else:
 				yield wait(self.ack_event)
+		yield resume(self.ack_event)
 	
 	def recv(self):
 		"""Wait until at least one byte is received."""
@@ -172,7 +159,7 @@ class TcpSocket(Socket):
 		"""Close this end of a connection."""
 		def fin():
 			self.__sched_send(TcpPacket(self.local, self.remote, seq_num=len(self.out), fin=True))
-			return wait(self.last_ack_event, self.timeout)
+			return wait(self.ack_event, self.timeout)
 		
 		if self.state == 'ESTABLISHED' or self.state == 'SYN_RCVD':
 			self.state = 'FIN_WAIT_1'
@@ -208,7 +195,7 @@ class TcpSocket(Socket):
 		Socket.schedule_send(self, packet)
 
 	def _buffer(self, packet):
-		"""Called by the Host to pass a packet to this TcpSocket."""
+		"""Called by the Host to pass a packet to this Socket."""
 		self.log('<- %s' % (packet,))   
 		if packet.ack and packet.syn:
 			yield self.__syn_ack(packet)
@@ -223,36 +210,36 @@ class TcpSocket(Socket):
 		
 	# state changes
 
+	def __syn_ack(self, packet):
+		"""Handle a SYN+ACK packet."""
+		yield resume(self.syn_ack_event)
+
 	def __ack(self, packet):
 		"""Handle an ACK packet."""
 		if self.state == 'SYN_RCVD':
 			self.state = 'ESTABLISHED'
 			self.log('SYN_RCVD <- ACK : ESTABLISHED')
-			yield resume(self.ack_event)
 		if packet.ack_num <= len(self.out):
+			#re-estimate rtt
+			sent_time = self.rtt_dict.get(packet.ack_num, None)
+			if sent_time:
+				self.rtt = (self.rtt + simulator.scheduler.get_time() - sent_time) / 2
+				self.rtt_dict[packet.ack_num] = None
+				self.log('setting timeout to {socket.timeout:3f}'.format(socket=self))
+			#check for triple ACKs
 			self.ack_counts[packet.ack_num] += 1
 			if self.ack_counts[packet.ack_num] >= 3: #triple ACKs
 				yield resume(self.loss_event)
+				return
+			#adjust window
 			elif packet.ack_num > self.out_ack_i:
-				#adjust cwnd
 				new_bytes = packet.ack_num - self.out_ack_i
 				self.cwnd += (
 					new_bytes if self.cwnd < self.ssthresh
 					else int(new_bytes * TcpPacket.mss / self.cwnd)
 				)
 				self.out_ack_i = packet.ack_num
-				yield resume(self.ack_event)
-			#if packet.ack_num in self.rtt_dict:
-				#self.rtt = (self.rtt + scheduler.get_time() - self.rtt_dict[packet.ack_num]) / 2.
-				#del self.rtt_dict[packet.ack_num]
-				#self.timeout = self.rtt * 1.5
-				#print self.rtt
-		else:
-			yield resume(self.last_ack_event)
-
-	def __syn_ack(self, packet):
-		"""Handle a SYN+ACK packet."""
-		yield resume(self.syn_ack_event)
+		yield resume(self.ack_event)
 
 	def __syn(self, packet):
 		yield resume(self.syn_event, packet)
@@ -270,8 +257,39 @@ class TcpSocket(Socket):
 
 	def __fin(self, packet):
 		"""Handle a FIN packet."""
-		if self.state == 'ESTABLISHED':
+		if self.state == 'SYN_RCVD':
+			self.state = 'CLOSE_WAIT'
+			self.log('SYN_RCVD <- FIN : ACK -> CLOSE_WAIT')
+		elif self.state == 'ESTABLISHED':
 			self.state = 'CLOSE_WAIT'
 			self.log('ESTABLISHED <- FIN : ACK -> CLOSE_WAIT') 
 		self.__sched_send(TcpPacket(self.local, self.remote, ack_num=packet.seq_num+1))
 		yield resume(self.fin_event)
+
+	#loss
+	
+	def tahoe_loss(self, start, end):
+		try:
+			yield wait(self.loss_event, self.timeout)
+		except TimeoutException:
+			pass
+		if start <= self.out_ack_i < end:
+			log('loss_event')
+			self.ack_counts.clear()
+			self.out_i = self.out_ack_i
+			self.ssthresh = int(max(self.cwnd/2, TcpPacket.mss))
+			self.cwnd = TcpPacket.mss
+			yield resume(self.ack_event)
+			
+	def reno_loss(self, start, end):
+		try:
+			yield wait(self.loss_event, self.timeout)
+			self.cwnd = max(self.cwnd // 2, TcpPacket.mss)
+		except TimeoutException:
+			self.cwnd = TcpPacket.mss
+		if start <= self.out_ack_i < end:
+			log('loss_event')
+			self.ack_counts.clear()
+			self.out_i = self.out_ack_i
+			self.ssthresh = int(max(self.cwnd/2, TcpPacket.mss))
+			yield resume(self.ack_event)
