@@ -4,7 +4,7 @@ from link import Packet
 from sim import *
 from .socket import Socket
 
-log = lambda x: logger.log(x, 2)
+log = lambda x: logger.log(x, 2) #transport layer
 
 class TcpPacket(Packet):
 	"""Represents a TCP packet."""
@@ -75,10 +75,10 @@ class TcpSocket(Socket):
 	def timeout(self):
 		return self.rtt * 1.5
 
-	def log(self, s):
+	def log(self, event_type, str):
 		"""Logs a message, including details about this TcpSocket."""
 		local_str = '{addr[0]}:{addr[1]}'.format(addr=self.local)
-		return log('{:15} {}'.format(local_str, s))
+		return log('tcp-{} {:15} {}'.format(event_type, local_str, str))
 
 	# public methods
 
@@ -106,7 +106,7 @@ class TcpSocket(Socket):
 		socket.host.origin_to_tcp[packet.origin] = socket
 		
 		socket.state = 'SYN_RCVD'
-		socket.log('LISTEN <- SYN : SYN_RECVD -> SYN+ACK')
+		socket.log('state', 'LISTEN <- SYN : SYN_RECVD -> SYN+ACK')
 		socket.__sched_send(TcpPacket(socket.local, socket.remote, seq_num=0, ack_num=0, syn=True))
 		
 		return socket
@@ -119,19 +119,20 @@ class TcpSocket(Socket):
 		self.remote = addr
 		
 		self.state = 'SYN_SENT'
-		self.log('CLOSED : SYN -> SYN_SENT')
+		self.log('state', 'CLOSED : SYN -> SYN_SENT')
 		def syn():
 			self.__sched_send(TcpPacket(self.local, self.remote, seq_num=0, syn=True))
 			return wait(self.syn_ack_event, self.timeout)
 		yield attempt(syn, 10)
 		self.state = 'ESTABLISHED'
-		self.log('SYN_SENT <- SYN_ACK : ESTABLISHED -> ACK')
+		self.log('state', 'SYN_SENT <- SYN_ACK : ESTABLISHED -> ACK')
 		self.__sched_send(TcpPacket(self.local, self.remote, ack_num=0))
 
 	def sendall(self, message):
 		"""Send the message. Return only when finished."""
 		if not hasattr(self, 'remote'):
 			raise Exception('Must call connect() first')
+		
 		self.out += message
 		while self.out_ack_i < len(self.out):	
 			end = min(self.out_ack_i+self.cwnd, self.out_i+TcpPacket.mss, len(self.out))
@@ -140,11 +141,23 @@ class TcpSocket(Socket):
 				self.__sched_send(TcpPacket(self.local, self.remote, message, seq_num=self.out_i))
 				if end not in self.rtt_dict:
 					self.rtt_dict[end] = simulator.scheduler.get_time()
-				simulator.new_thread(self.loss(self.out_i, end))
+				
+				def loss(start=self.out_i, end=end, timeout=self.timeout):
+					try:
+						ack_num, = yield wait(self.loss_event, timeout)
+					except TimeoutException:
+						if start <= self.out_ack_i < end:
+							self.log('loss', 'timeout {:.4}'.format(timeout))
+							self.loss(timeout=True)
+					else:
+						if start <= self.out_ack_i < end:
+							self.log('loss', 'triple-ack {}'.format(ack_num))
+							self.loss(timeout=False)	
+				simulator.new_thread(loss())
+				
 				self.out_i = end
 			else:
 				yield wait(self.ack_event)
-		yield resume(self.ack_event)
 	
 	def recv(self):
 		"""Return incoming data. At least one byte will be returned, unless the other side has
@@ -162,27 +175,27 @@ class TcpSocket(Socket):
 		
 		if self.state == 'ESTABLISHED' or self.state == 'SYN_RCVD':
 			self.state = 'FIN_WAIT_1'
-			self.log('ESTABLISHED : FIN -> FIN_WAIT_1')
+			self.log('state', 'ESTABLISHED : FIN -> FIN_WAIT_1')
 			while self.out_ack_i < len(self.out):
 				yield wait(self.ack_event)
 			yield attempt(fin, 10)
 			if self.state == 'FIN_WAIT_1':
 				self.state = 'FIN_WAIT_2'
-				self.log('FIN_WAIT_1 <- ACK : FIN_WAIT_2')
+				self.log('state', 'FIN_WAIT_1 <- ACK : FIN_WAIT_2')
 				yield wait(self.fin_event)
 				self.state = 'TIME_WAIT'
-				self.log('FIN_WAIT_2 <- FIN : ACK -> TIME_WAIT')
+				self.log('state', 'FIN_WAIT_2 <- FIN : ACK -> TIME_WAIT')
 			elif self.state == 'CLOSING':
 				self.state = 'TIME_WAIT'
-				self.log('CLOSING <- ACK : TIME_WAIT')
+				self.log('state', 'CLOSING <- ACK : TIME_WAIT')
 			yield sleep(3*self.timeout)
-			self.log('TIME_WAIT : CLOSED')
+			self.log('state', 'TIME_WAIT : CLOSED')
 		
 		elif self.state == 'CLOSE_WAIT':
 			self.state = 'LAST_ACK'
-			self.log('CLOSE_WAIT : FIN -> LAST_ACK')
+			self.log('state', 'CLOSE_WAIT : FIN -> LAST_ACK')
 			yield attempt(fin, 10)
-			self.log('LAST_ACK <- ACK : CLOSED')
+			self.log('state', 'LAST_ACK <- ACK : CLOSED')
 
 	# I/O
 
@@ -190,12 +203,12 @@ class TcpSocket(Socket):
 		"""Queue the packet on the appropriate link.
 		This function is identical to Socket.scheduler_send, except for its debugging.
 		"""
-		self.log('-> %s' % (packet,))
+		self.log('send', '-> %s' % (packet,))
 		Socket.sched_send(self, packet)
 
 	def _buffer(self, packet):
 		"""Called by the Host to pass a packet to this Socket."""
-		self.log('<- %s' % (packet,))   
+		self.log('recv', '<- %s' % (packet,))   
 		if packet.ack and packet.syn:
 			yield self.__syn_ack(packet)
 		elif packet.ack:
@@ -217,19 +230,18 @@ class TcpSocket(Socket):
 		"""Handle an ACK packet."""
 		if self.state == 'SYN_RCVD':
 			self.state = 'ESTABLISHED'
-			self.log('SYN_RCVD <- ACK : ESTABLISHED')
+			self.log('state', 'SYN_RCVD <- ACK : ESTABLISHED')
 		if packet.ack_num <= len(self.out):
 			#re-estimate rtt
 			sent_time = self.rtt_dict.get(packet.ack_num, None)
 			if sent_time:
 				self.rtt = (self.rtt + simulator.scheduler.get_time() - sent_time) / 2
 				self.rtt_dict[packet.ack_num] = None
-				self.log('setting timeout to {socket.timeout:3f}'.format(socket=self))
+				self.log('timeout-adjust', '{socket.timeout:3f}'.format(socket=self))
 			#check for triple ACKs
 			self.ack_counts[packet.ack_num] += 1
 			if self.ack_counts[packet.ack_num] >= 3: #triple ACKs
-				yield resume(self.loss_event)
-				return
+				yield resume(self.loss_event, packet.ack_num)
 			#adjust window
 			elif packet.ack_num > self.out_ack_i:
 				new_bytes = packet.ack_num - self.out_ack_i
@@ -238,7 +250,9 @@ class TcpSocket(Socket):
 					else int(new_bytes * TcpPacket.mss / self.cwnd)
 				)
 				self.out_ack_i = packet.ack_num
-		yield resume(self.ack_event)
+				yield resume(self.ack_event)
+		else:
+			yield resume(self.ack_event)
 
 	def __syn(self, packet):
 		yield resume(self.syn_event, packet)
@@ -258,39 +272,30 @@ class TcpSocket(Socket):
 		"""Handle a FIN packet."""
 		if self.state == 'SYN_RCVD':
 			self.state = 'CLOSE_WAIT'
-			self.log('SYN_RCVD <- FIN : ACK -> CLOSE_WAIT')
+			self.log('state', 'SYN_RCVD <- FIN : ACK -> CLOSE_WAIT')
 		elif self.state == 'ESTABLISHED':
 			self.state = 'CLOSE_WAIT'
-			self.log('ESTABLISHED <- FIN : ACK -> CLOSE_WAIT') 
+			self.log('state', 'ESTABLISHED <- FIN : ACK -> CLOSE_WAIT') 
 		self.__sched_send(TcpPacket(self.local, self.remote, ack_num=packet.seq_num+1))
 		yield resume(self.fin_event)
 
 	#loss
 	
-	def tahoe_loss(self, start, end):
+	def tahoe_loss(self, timeout):
 		"""Check for loss and compensate according to TCP Tahoe."""
-		try:
-			yield wait(self.loss_event, self.timeout)
-		except TimeoutException:
-			pass
-		if start <= self.out_ack_i < end:
-			log('loss_event')
-			self.ack_counts.clear()
-			self.out_i = self.out_ack_i
-			self.ssthresh = int(max(self.cwnd/2, TcpPacket.mss))
-			self.cwnd = TcpPacket.mss
-			yield resume(self.ack_event)
+		self.ack_counts.clear()
+		self.out_i = self.out_ack_i
+		self.ssthresh = max(self.cwnd // 2, TcpPacket.mss)
+		self.cwnd = TcpPacket.mss
+		yield resume(self.ack_event)
 			
-	def reno_loss(self, start, end):
+	def reno_loss(self, timeout):
 		"""Check for loss and compensate according to TCP Reno."""
-		try:
-			yield wait(self.loss_event, self.timeout)
-			self.cwnd = max(self.cwnd // 2, TcpPacket.mss)
-		except TimeoutException:
+		if timeout:
 			self.cwnd = TcpPacket.mss
-		if start <= self.out_ack_i < end:
-			log('loss_event')
-			self.ack_counts.clear()
-			self.out_i = self.out_ack_i
-			self.ssthresh = int(max(self.cwnd/2, TcpPacket.mss))
-			yield resume(self.ack_event)
+		else:
+			self.cwnd = max(self.cwnd // 2, TcpPacket.mss)
+		self.ack_counts.clear()
+		self.out_i = self.out_ack_i
+		self.ssthresh = max(self.cwnd // 2, TcpPacket.mss)
+		yield resume(self.ack_event)
