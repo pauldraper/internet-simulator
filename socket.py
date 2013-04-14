@@ -17,7 +17,7 @@ class Socket:
 		"""Enqueue the given Packet on the correct outbound Link, depending on the Packet's
 		destination address.
 		"""
-		self.host.get_links(packet.dest[0]).next().enqueue(packet)
+		next(self.host.get_links(packet.dest[0])).enqueue(packet)
 
 	@abstractmethod
 	def _buffer(self, packet):

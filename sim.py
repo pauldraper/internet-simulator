@@ -31,6 +31,9 @@ class Scheduler:
 	def cancel_all(self):
 		"""Cancel all scheduled events."""
 		map(self.scheduler.cancel, self.scheduler.queue)
+	
+	def run(self):
+		self.scheduler.run()
 
 class SleepException(Exception):
 	"""Thrown when sleep is needed."""
@@ -94,13 +97,16 @@ class Simulator:
 		if not stack:
 			return
 		try:
+			print(stack)
 			next_call = action(stack[-1])
 		except StopIteration as e:
 			stack.pop()
 			self.__proceed(stack, lambda c: c.send(e.args))
 		except SleepException as e:
+			stack.pop()
 			self.scheduler.add(self.__proceed, (stack,), e.timeout)
 		except WaitException as e:
+			stack.pop()
 			e.lock.waiting.append(stack)
 			if e.timeout is not None:
 				start_time = self.scheduler.get_time()
@@ -109,6 +115,7 @@ class Simulator:
 						self.__proceed(stack, lambda c: c.throw(TimeoutException))
 				self.scheduler.add(timed_out, delay=e.timeout)
 		except ResumeException as e:
+			stack.pop()
 			stacks, e.lock = e.lock, []
 			e.lock.last_released = self.scheduler.get_time()
 			for stack in stacks:

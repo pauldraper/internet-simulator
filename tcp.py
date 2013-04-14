@@ -121,7 +121,7 @@ class TcpSocket(Socket):
 			self.__sched_send(TcpPacket(self.local, self.remote, seq_num=0, syn=True))
 			return wait(self.syn_ack, self.timeout)
 		self.__attempt(syn, 10)
-		
+		print ('adasda')
 		self.state = 'ESTABLISHED'
 		self.log('SYN_SENT <- SYN_ACK : ESTABLISHED -> ACK')
 		self.__sched_send(TcpPacket(self.local, self.remote, ack_num=0))
@@ -143,6 +143,7 @@ class TcpSocket(Socket):
 			self.__sched_send(TcpPacket(self.local, self.remote, message, seq_num=self.out_i))
 				
 			def loss(start=self.out_i, end=end):
+				print('triggered')
 				yield wait(self.loss_event, self.timeout)
 				if start <= self.out_ack_i < end:
 					self.ack_counts.clear()

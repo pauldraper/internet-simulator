@@ -65,7 +65,7 @@ class FileClient:
 		self.addr = addr
 
 	def download_file(self):
-		yield self.socket.connect(self.addr, self.download_file)
+		yield self.socket.connect(self.addr)
 		yield self.socket.sendall('file xkcd1058.png\n', lambda: self.socket.recv(self.handle_recv))
 		file = open('downloaded_%d.png' % (random.randint(1,10000000),), 'w')
 		while True:
@@ -79,19 +79,16 @@ class FileClient:
 def demo_client_server(host1, host2, n_client=1, n_server=1):
 	simulator.__init__()
 	server_ip = host2.ip
-	# intialize sockets
-	clients = [
-		FileClient(host1, (server_ip, 80+random.randrange(n_server)))
-		for _ in range(0,n_client)
-	]
-	servers = [
-		Server(host2, 80+i)
-		for i in range(0,n_server)
-	]
-
+	for _ in range(0,n_client):
+		client = FileClient(host1, (server_ip, 80+random.randrange(n_server)))
+		simulator.new_thread(client.download_file())	
+	for i in range(0,n_server):
+		server = Server(host2, 80+i)
+		simulator.new_thread(server.run())
+		def stop(server=server):
+			yield server.end()
+		simulator.new_thread(stop)
 	simulator.run()
-
-	map(Server.end, servers)
 
 if __name__ == '__main__':
 	# intialize network
@@ -102,7 +99,7 @@ if __name__ == '__main__':
 	link1.loss = .0
 	link2.loss = .0
 
-	logger.level = 2
+	logger.level = 3
 	
 	demo_client_server(host1, host2, 1, 1)
 
