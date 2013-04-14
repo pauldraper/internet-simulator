@@ -83,18 +83,18 @@ class TcpSocket(Socket):
 	# public methods
 
 	def bind(self, addr):
-		"""Bind the socket to the specified port. (Called by server.)"""
+		"""Bind the socket to the specified port."""
 		self.local = addr
 		self.host.port_to_tcp[addr[1]] = self
 	
 	def listen(self):
-		"""Listen for connections to the bound port. (Called by server.)"""
+		"""Listen for connections to the bound port."""
 		if not hasattr(self, 'local'):
 			raise Exception('Must call bind() first')
 		self.state = 'LISTEN'
 
 	def accept(self):
-		"""Accept a connection. The socket is returned. (Called by server.)"""
+		"""Accept a connection. The socket is returned."""
 		if self.state != 'LISTEN':
 			raise Exception('Must call listen() first')
 		
@@ -112,7 +112,7 @@ class TcpSocket(Socket):
 		return socket
 		
 	def connect(self, addr):
-		"""Establish a connection to the specified address. (Called by client.)"""
+		"""Establish a connection to the specified address."""
 		assert self.state == 'CLOSED'
 		self.local = self.host.getAvailableTcp()
 		self.host.port_to_tcp[self.local[1]] = self
@@ -129,9 +129,7 @@ class TcpSocket(Socket):
 		self.__sched_send(TcpPacket(self.local, self.remote, ack_num=0))
 
 	def sendall(self, message):
-		"""Send the message, and then call the callback when the entire message has been
-		acknowledged.
-		"""
+		"""Send the message. Return only when finished."""
 		if not hasattr(self, 'remote'):
 			raise Exception('Must call connect() first')
 		self.out += message
@@ -149,7 +147,8 @@ class TcpSocket(Socket):
 		yield resume(self.ack_event)
 	
 	def recv(self):
-		"""Wait until at least one byte is received."""
+		"""Return incoming data. At least one byte will be returned, unless the other side has
+		closed."""
 		if not self.inc_read_i < self.inc_i:
 			yield wait(self.data_event)
 		message, self.inc_read_i = self.inc[self.inc_read_i:self.inc_i], self.inc_i 
@@ -188,7 +187,7 @@ class TcpSocket(Socket):
 	# I/O
 
 	def __sched_send(self, packet):
-		"""Enque the packet on the appropriate link.
+		"""Queue the packet on the appropriate link.
 		This function is identical to Socket.scheduler_send, except for its debugging.
 		"""
 		self.log('-> %s' % (packet,))
@@ -269,6 +268,7 @@ class TcpSocket(Socket):
 	#loss
 	
 	def tahoe_loss(self, start, end):
+		"""Check for loss and compensate according to TCP Tahoe."""
 		try:
 			yield wait(self.loss_event, self.timeout)
 		except TimeoutException:
@@ -282,6 +282,7 @@ class TcpSocket(Socket):
 			yield resume(self.ack_event)
 			
 	def reno_loss(self, start, end):
+		"""Check for loss and compensate according to TCP Reno."""
 		try:
 			yield wait(self.loss_event, self.timeout)
 			self.cwnd = max(self.cwnd // 2, TcpPacket.mss)
