@@ -1,8 +1,8 @@
-from collections import Counter, deque, OrderedDict
+from collections import Counter
 
 from link import Packet
 from sim import *
-from socket import Socket
+from .socket import Socket
 
 log = lambda x: logger.log(x, 2)
 
@@ -99,7 +99,7 @@ class TcpSocket(Socket):
 			raise Exception('Must call listen() first')
 		
 		packet = (yield wait(self.syn_event))[0]
-		socket = TcpSocket(self.host, self.timeout)
+		socket = TcpSocket(self.host)
 		socket.state = self.state
 		socket.local = self.local
 		socket.remote = packet.origin
@@ -191,7 +191,7 @@ class TcpSocket(Socket):
 		This function is identical to Socket.scheduler_send, except for its debugging.
 		"""
 		self.log('-> %s' % (packet,))
-		Socket.schedule_send(self, packet)
+		Socket.sched_send(self, packet)
 
 	def _buffer(self, packet):
 		"""Called by the Host to pass a packet to this Socket."""

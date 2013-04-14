@@ -1,4 +1,3 @@
-from __future__ import division
 import sched
 
 class Scheduler:
@@ -7,7 +6,7 @@ class Scheduler:
 	def __init__(self):
 		"""Create an empty scheduler."""
 		self.current = 0
-		self.scheduler = sched.scheduler(self.get_time,self.advance_time)
+		self.scheduler = sched.scheduler(self.get_time, self.advance_time)
 	
 	def get_time(self):
 		"""Return current time of Scheduler."""
@@ -21,10 +20,6 @@ class Scheduler:
 		"""Schedule a function call."""
 		return self.scheduler.enter(delay, priority, handler, args)
 	
-	def add_abs(self, handler, args=(), time=None, priority=1):
-		"""Schedule a function call, using an absolute time."""
-		return self.scheduler.enterabs(time, priority, handler, args)
-	
 	def cancel(self, event):
 		self.scheduler.cancel(event)
 
@@ -35,33 +30,33 @@ class Scheduler:
 	def run(self):
 		self.scheduler.run()
 
-class SleepException(Exception):
+class _SleepException(Exception):
 	"""Thrown when sleep is needed."""
 	def __init__(self, timeout):
 		self.timeout = timeout	
 def sleep(timeout):
 	"""Sleep for timeout."""
-	raise SleepException(timeout)
+	raise _SleepException(timeout)
 	return #In Python 3.3, simply use `yield from iter(())`
 	yield
 
-class WaitException(Exception):
+class _WaitException(Exception):
 	"""Thrown when wait is needed."""
 	def __init__(self, lock, timeout):
 		self.lock = lock
 		self.timeout = timeout
 def wait(lock, timeout=None):
-	raise WaitException(lock, timeout)
+	raise _WaitException(lock, timeout)
 	return #In Python 3.3, simply use `yield from iter(())`
 	yield
 	
-class ResumeException(Exception):
+class _ResumeException(Exception):
 	"""Thrown when wait is needed."""
 	def __init__(self, lock, args):
 		self.lock = lock
 		self.args = args
 def resume(lock, *args):
-	raise ResumeException(lock, args)
+	raise _ResumeException(lock, args)
 	return #In Python 3.3, simply use `yield from iter(())`
 	yield
 	
@@ -109,9 +104,9 @@ class Simulator:
 		except StopIteration as e:
 			stack.pop()
 			self.__proceed(stack, lambda c: c.send(e.value))
-		except SleepException as e:
+		except _SleepException as e:
 			self.scheduler.add(self.__proceed, (stack,), e.timeout)
-		except WaitException as e:
+		except _WaitException as e:
 			stack.pop()
 			e.lock.waiting.append(stack)
 			if e.timeout is not None:
@@ -120,7 +115,7 @@ class Simulator:
 					if start_time >= e.lock.last_released:
 						self.__proceed(stack, lambda c: c.throw(TimeoutException))
 				self.scheduler.add(timed_out, delay=e.timeout)
-		except ResumeException as e:
+		except _ResumeException as e:
 			stacks, e.lock.waiting = e.lock.waiting, []
 			e.lock.last_released = self.scheduler.get_time()
 			for stack in stacks:

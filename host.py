@@ -1,7 +1,7 @@
 from link import Link
 from sim import logger
-from tcp import TcpSocket
-from udp import UDPSocket
+from socket.tcp import TcpSocket
+from socket.udp import UdpSocket
 
 log = lambda x: logger.log(x, 2)
 
@@ -72,7 +72,7 @@ class Host:
 	def socket(self, domain, sock_type):
 		"""Create and return a socket of the appropriate type."""
 		if domain == AF_INET and sock_type == SOCK_DGRAM:
-			return UDPSocket(self)
+			return UdpSocket(self)
 		elif domain == AF_INET and sock_type == SOCK_STREAM:
 			return TcpSocket(self)
 

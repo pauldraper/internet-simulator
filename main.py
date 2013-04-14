@@ -1,7 +1,8 @@
 from datetime import datetime
+import random
 
-from link import *
 from host import *
+from link import Link
 from sim import simulator, sleep
 
 log = lambda x: logger.log(x, 1)
