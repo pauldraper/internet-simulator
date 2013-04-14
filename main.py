@@ -20,74 +20,61 @@ class Server:
 	def __init__(self, host, port):
 		self.socket = host.socket(AF_INET, SOCK_STREAM)
 		self.socket.bind((host.ip, port))
+	
+	def run(self):
 		self.socket.listen()
-		self.socket.accept(self.handle_connection)
+		self.handle_conn((yield self.socket.accept(self.handle_connection)))
 		
 	def end(self):
 		self.socket.close()
 
-	def handle_connection(self, socket, addr):
-		self.socket.accept(self.handle_connection)
-		socket.recv(Server.Conn(socket).handle_recv)
-	
-	class Conn:
-		def __init__(self, socket):
-			self.socket = socket
-			self.buffer = ''
-		
-		def handle_recv(self, message):
-			self.buffer += message
-			if self.buffer[-1] != '\n':
-				self.socket.recv(self.handle_recv)
-			else:
-				print(self.buffer[:-1])
-				if self.buffer[:4] == 'time':
-					self.socket.sendall('%s' % (datetime.now(),), self.socket.close)
-				elif self.buffer[:4] == 'file':
-					self.socket.sendall(open(self.buffer[5:-1], 'rb').read(), self.socket.close)
-				else:
-					self.socket.sendall('unrecognized request', self.socket.close)
-					
+	def handle_con(self, socket, addr):
+		message = ''
+		while self.buffer[-1] != '\n':
+			message += yield socket.recv()
+		log(message[:-1])
+		if message[:4] == 'time':
+			yield self.socket.sendall('%s' % (datetime.now(),), self.socket.close)
+		elif message[:4] == 'file':
+			yield self.socket.sendall(open(self.buffer[5:-1], 'rb').read(), self.socket.close)
+		else:
+			yield self.socket.sendall('unrecognized request', self.socket.close)			
 			
 class TimeClient:
 
 	def __init__(self, host, addr):
 		self.socket = host.socket(AF_INET, SOCK_STREAM)
-		self.socket.connect(addr, self.get_time)
-		self.buffer = ''
-		
+		self.addr = addr
+
 	def get_time(self):
-		if not hasattr(self.socket, 'failed'):
-			self.socket.sendall('time\n', lambda: self.socket.recv(self.handle_recv))
-		
-	def handle_recv(self, message):
-		if message:
-			self.buffer += message
-			self.socket.recv(self.handle_recv)
-		else:
-			print(self.buffer)
-			self.socket.close()
-			
+		yield self.socket.connect(self.addr)
+		yield self.socket.sendall('time\n')
+		message = ''
+		while True:
+			m = yield self.socket.recv()
+			if not m:
+				break
+			message += m
+		log(message)
+		yield self.socket.close()
 
 class FileClient:
 
 	def __init__(self, host, addr):
 		self.socket = host.socket(AF_INET, SOCK_STREAM)
-		self.socket.connect(addr, self.download_file)
-		self.file = open('downloaded_%d.png' % (random.randint(1,10000000),), 'w')
-		
-	def download_file(self):
-		if not hasattr(self.socket, 'failed'):
-			self.socket.sendall('file xkcd1058.png\n', lambda: self.socket.recv(self.handle_recv))
-		
-	def handle_recv(self, message):
-		if message:
-			self.file.write(message)
-			self.socket.recv(self.handle_recv)
-		else:
-			self.file.close()
-			self.socket.close()
+		self.addr = addr
 
+	def download_file(self):
+		yield self.socket.connect(self.addr, self.download_file)
+		yield self.socket.sendall('file xkcd1058.png\n', lambda: self.socket.recv(self.handle_recv))
+		file = open('downloaded_%d.png' % (random.randint(1,10000000),), 'w')
+		while True:
+			m = yield self.socket.recv()
+			if not m:
+				break
+			file.write(m)
+		file.close()
+		yield self.socket.close()
 
 def demo_client_server(host1, host2, n_client=1, n_server=1):
 	simulator.__init__()
