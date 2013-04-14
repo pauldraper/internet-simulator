@@ -79,7 +79,7 @@ class Host:
 	def getAvailableUDP(self):
 		"""Return an available UDP port on this Host."""
 		try:
-			port = (p for p in xrange(32768,65536) if p not in self.port_to_udp).next()
+			port = (p for p in range(32768,65536) if p not in self.port_to_udp).next()
 		except StopIteration:
 			raise Exception('No available ports')
 		return (self.ip, port)
@@ -87,7 +87,7 @@ class Host:
 	def getAvailableTcp(self):
 		"""Return an available TCP port on this Host."""
 		try:
-			port = (p for p in xrange(32768,65536) if p not in self.port_to_tcp).next()
+			port = (p for p in range(32768,65536) if p not in self.port_to_tcp).next()
 		except StopIteration:
 			raise Exception('No available ports')
 		return (self.ip, port)

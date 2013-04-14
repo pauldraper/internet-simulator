@@ -1,7 +1,7 @@
 """This has fallen into disuse and its functionality needs to be verfied."""
 
 from link import Packet
-from sim import scheduler, logger
+from sim import logger
 from socket import Socket
 
 log = lambda x: logger.log(x, 2)
@@ -24,16 +24,16 @@ class UDPSocket(Socket):
 		Socket.__init__(self, host)
 		self.packets = deque()
 
-	def bind(self, (ip, port)):
-		self.local = (ip, port)
+	def bind(self, addr):
+		self.local = addr
 
-	def connect(self, (ip, port)):
-		self.remote = (ip, port)
+	def connect(self, addr):
+		self.remote = addr
 
-	def sendto(self, message, (ip, port)):
-		p = UDPPacket(self.local, (ip, port), message)
+	def sendto(self, message, addr):
+		p = UDPPacket(self.local, addr, message)
 		log('socket-send %s:%s %s:%s' % (p.origin[0], p.origin[1], p.dest[0], p.dest[1]))
-		self.host.getLinks(ip).next().enqueue(p)
+		self.host.getLinks(addr[1]).next().enqueue(p)
 
 	def send(self, message):
 		if not hasattr(self, 'remote'):

@@ -40,7 +40,7 @@ class Server:
 			if self.buffer[-1] != '\n':
 				self.socket.recv(self.handle_recv)
 			else:
-				print self.buffer[:-1]
+				print(self.buffer[:-1])
 				if self.buffer[:4] == 'time':
 					self.socket.sendall('%s' % (datetime.now(),), self.socket.close)
 				elif self.buffer[:4] == 'file':
@@ -51,9 +51,9 @@ class Server:
 			
 class TimeClient:
 
-	def __init__(self, host, (ip, port)):
+	def __init__(self, host, addr):
 		self.socket = host.socket(AF_INET, SOCK_STREAM)
-		self.socket.connect((ip, port), self.get_time)
+		self.socket.connect(addr, self.get_time)
 		self.buffer = ''
 		
 	def get_time(self):
@@ -65,15 +65,15 @@ class TimeClient:
 			self.buffer += message
 			self.socket.recv(self.handle_recv)
 		else:
-			print self.buffer
+			print(self.buffer)
 			self.socket.close()
 			
 
 class FileClient:
 
-	def __init__(self, host, (ip, port)):
+	def __init__(self, host, addr):
 		self.socket = host.socket(AF_INET, SOCK_STREAM)
-		self.socket.connect((ip, port), self.download_file)
+		self.socket.connect(addr, self.download_file)
 		self.file = open('downloaded_%d.png' % (random.randint(1,10000000),), 'w')
 		
 	def download_file(self):
@@ -90,19 +90,19 @@ class FileClient:
 
 
 def demo_client_server(host1, host2, n_client=1, n_server=1):
-	scheduler.__init__()
+	simulator.__init__()
 	server_ip = host2.ip
 	# intialize sockets
 	clients = [
 		FileClient(host1, (server_ip, 80+random.randrange(n_server)))
-		for _ in xrange(0,n_client)
+		for _ in range(0,n_client)
 	]
 	servers = [
 		Server(host2, 80+i)
-		for i in xrange(0,n_server)
+		for i in range(0,n_server)
 	]
 
-	scheduler.run()
+	simulator.run()
 
 	map(Server.end, servers)
 

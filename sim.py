@@ -129,6 +129,6 @@ class Logger:
 	def log(self, text, level=1):
 		"""Log a message with the given level."""
 		if level <= self.level:
-			print '%15f %s' % (simulator.scheduler.get_time(), text)
+			print('{:10.4f} {}'.format(simulator.scheduler.get_time(), text))
 
 logger = Logger() #singleton

@@ -80,10 +80,10 @@ class TcpSocket(Socket):
 
 	# public methods
 
-	def bind(self, (ip, port)):
+	def bind(self, addr):
 		"""Bind the socket to the specified port. (Called by server.)"""
-		self.local = (ip, port)
-		self.host.port_to_tcp[port] = self
+		self.local = addr
+		self.host.port_to_tcp[addr[1]] = self
 	
 	def listen(self):
 		"""Listens for connections to the bound port. (Called by server.)"""
@@ -108,12 +108,12 @@ class TcpSocket(Socket):
 		self.host.origin_to_tcp[packet.origin] = socket
 		return socket
 		
-	def connect(self, (ip, port)):
+	def connect(self, addr):
 		"""Establish a connection to the specified address."""
 		assert self.state == 'CLOSED'
 		self.local = self.host.getAvailableTcp()
 		self.host.port_to_tcp[self.local[1]] = self
-		self.remote = (ip, port)
+		self.remote = addr
 		
 		self.state = 'SYN_SENT'
 		self.log('CLOSED : SYN -> SYN_SENT')
@@ -287,7 +287,7 @@ class TcpSocket(Socket):
 
 	def __attempt(self, f, attempts):
 		"""Attempt multiple times."""
-		for _ in xrange(attempts):
+		for _ in range(attempts):
 			try:
 				return (yield f())
 			except TimeoutException:
