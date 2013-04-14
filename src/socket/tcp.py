@@ -51,25 +51,25 @@ class TcpSocket(Socket):
 	def __init__(self, host):
 		"""Create a TcpSocket."""
 		Socket.__init__(self, host)
-		self.inc = []           #incoming buffer
-		self.inc_i = 0          #length of in-order bytes
-		self.inc_read_i = 0     #length of read bytes
-		self.out = []           #outgoing buffer
-		self.out_i = 0          #length of bytes sent
-		self.out_ack_i = 0      #length of bytes acknowledged
-		self.cwnd = 15000       #window size
+		self.inc = []		   #incoming buffer
+		self.inc_i = 0		  #length of in-order bytes
+		self.inc_read_i = 0	 #length of read bytes
+		self.out = []		   #outgoing buffer
+		self.out_i = 0		  #length of bytes sent
+		self.out_ack_i = 0	  #length of bytes acknowledged
+		self.cwnd = 15000	   #window size
 		self.ssthresh = 96000   #slow start threshold
 		self.state = 'CLOSED'   #TCP state
 		self.ack_counts = Counter()
-		self.rtt = 8.           #estimated round trip time
-		self.rtt_dict = {}      #expected ack --> time sent
+		self.rtt = 8.		   #estimated round trip time
+		self.rtt_dict = {}	  #expected ack --> time sent
 		self.loss = self.tahoe_loss #TCP method for dealing with loss
-		self.syn_event      = simulator.create_lock()
+		self.syn_event	  = simulator.create_lock()
 		self.syn_ack_event  = simulator.create_lock()
-		self.ack_event      = simulator.create_lock()
-		self.data_event     = simulator.create_lock()
-		self.fin_event      = simulator.create_lock()
-		self.loss_event     = simulator.create_lock()
+		self.ack_event	  = simulator.create_lock()
+		self.data_event	 = simulator.create_lock()
+		self.fin_event	  = simulator.create_lock()
+		self.loss_event	 = simulator.create_lock()
 
 	@property
 	def timeout(self):
