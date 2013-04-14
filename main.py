@@ -23,22 +23,23 @@ class Server:
 	
 	def run(self):
 		self.socket.listen()
-		self.handle_conn((yield self.socket.accept(self.handle_connection)))
+		yield self.handle_conn((yield self.socket.accept()))
 		
 	def end(self):
-		self.socket.close()
+		yield self.socket.close()
 
-	def handle_con(self, socket, addr):
+	def handle_conn(self, socket):
 		message = ''
-		while self.buffer[-1] != '\n':
-			message += yield socket.recv()
+		while not message or message[-1] != '\n':
+			message += ''.join((yield socket.recv()))
 		log(message[:-1])
 		if message[:4] == 'time':
-			yield self.socket.sendall('%s' % (datetime.now(),), self.socket.close)
+			yield socket.sendall('%s' % (datetime.now(),), self.socket.close)
 		elif message[:4] == 'file':
-			yield self.socket.sendall(open(self.buffer[5:-1], 'rb').read(), self.socket.close)
+			yield socket.sendall(open(message[5:-1], 'rb').read())
 		else:
-			yield self.socket.sendall('unrecognized request', self.socket.close)			
+			yield socket.sendall('unrecognized request')
+		yield socket.close()
 			
 class TimeClient:
 
@@ -66,13 +67,13 @@ class FileClient:
 
 	def download_file(self):
 		yield self.socket.connect(self.addr)
-		yield self.socket.sendall('file xkcd1058.png\n', lambda: self.socket.recv(self.handle_recv))
-		file = open('downloaded_%d.png' % (random.randint(1,10000000),), 'w')
+		yield self.socket.sendall('file xkcd1058.png\n')
+		file = open('downloaded_%d.png' % (random.randint(1,10000000),), 'wb')
 		while True:
 			m = yield self.socket.recv()
 			if not m:
 				break
-			file.write(m)
+			file.write(bytes(m))
 		file.close()
 		yield self.socket.close()
 
@@ -86,20 +87,21 @@ def demo_client_server(host1, host2, n_client=1, n_server=1):
 		server = Server(host2, 80+i)
 		simulator.new_thread(server.run())
 		def stop(server=server):
+			yield sleep(5)
 			yield server.end()
-		simulator.new_thread(stop)
+		simulator.new_thread(stop())
 	simulator.run()
 
 if __name__ == '__main__':
 	# intialize network
 	host1 = Host('123.0.0.0')
 	host2 = Host('101.0.0.0')
-	link1 = Link(host1, host2, 0.5, 100)
-	link2 = Link(host2, host1, 0.5, 100)
-	link1.loss = .0
-	link2.loss = .0
+	link1 = Link(host1, host2, 0.5, 10000)
+	link2 = Link(host2, host1, 0.5, 10000)
+	link1.loss = .1
+	link2.loss = .1
 
-	logger.level = 3
+	logger.level = 2
 	
 	demo_client_server(host1, host2, 1, 1)
 

@@ -47,17 +47,17 @@ def sleep(timeout):
 
 class WaitException(Exception):
 	"""Thrown when wait is needed."""
-	def __init__(self, lock, timeout=None):
+	def __init__(self, lock, timeout):
 		self.lock = lock
 		self.timeout = timeout
-def wait(lock, timeout):
+def wait(lock, timeout=None):
 	raise WaitException(lock, timeout)
 	return #In Python 3.3, simply use `yield from iter(())`
 	yield
 	
 class ResumeException(Exception):
 	"""Thrown when wait is needed."""
-	def __init__(self, lock, timeout, args):
+	def __init__(self, lock, args):
 		self.lock = lock
 		self.args = args
 def resume(lock, *args):
@@ -68,6 +68,14 @@ def resume(lock, *args):
 class TimeoutException(Exception):
 	"""Thrown when timed out."""
 	pass
+def attempt(f, attempts):
+	"""Attempt multiple times."""
+	for _ in range(attempts):
+		try:
+			return (yield f())
+		except TimeoutException:
+			pass
+	raise TimeoutException
 
 class Simulator:
 	"""Controls function calls and flow."""
@@ -97,35 +105,32 @@ class Simulator:
 		if not stack:
 			return
 		try:
-			print(stack)
 			next_call = action(stack[-1])
 		except StopIteration as e:
 			stack.pop()
-			self.__proceed(stack, lambda c: c.send(e.args))
+			self.__proceed(stack, lambda c: c.send(e.value))
 		except SleepException as e:
-			stack.pop()
 			self.scheduler.add(self.__proceed, (stack,), e.timeout)
 		except WaitException as e:
 			stack.pop()
 			e.lock.waiting.append(stack)
 			if e.timeout is not None:
 				start_time = self.scheduler.get_time()
-				def timed_out():
+				def timed_out(e=e):
 					if start_time >= e.lock.last_released:
 						self.__proceed(stack, lambda c: c.throw(TimeoutException))
 				self.scheduler.add(timed_out, delay=e.timeout)
 		except ResumeException as e:
-			stack.pop()
-			stacks, e.lock = e.lock, []
+			stacks, e.lock.waiting = e.lock.waiting, []
 			e.lock.last_released = self.scheduler.get_time()
 			for stack in stacks:
-				self.__proceed(stack, e.args)
+				self.__proceed(stack, lambda c: c.send(e.args))
 		else:
 			stack.append(next_call)
 			self.__proceed(stack)
 
 simulator = Simulator() #singleton
-	
+
 class Logger:
 	"""Logs messages."""
 

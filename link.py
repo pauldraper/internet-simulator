@@ -52,9 +52,9 @@ class Link:
 			log('queue-start %d %d' % (self.id, packet.id))
 			self.queue.appendleft(packet)
 			if not self.busy:
-				simulator.new_thread(self.__transmit(packet))
+				simulator.new_thread(self.__transmit())
 
-	def __transmit(self, packet):
+	def __transmit(self):
 		"""Transmit packet."""
 		packet = self.queue.pop()
 		log('queue-end %d %d' % (self.id, packet.id))
