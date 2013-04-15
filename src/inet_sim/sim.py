@@ -71,10 +71,16 @@ def attempt(f, attempts):
 	"""Attempt multiple times."""
 	for _ in range(attempts):
 		try:
-			return (yield f())
+			ret((yield f()))
 		except TimeoutException:
 			pass
 	raise TimeoutException
+
+class _ReturnValue(Exception):
+	def __init__(self, value):
+		self.value = value
+def ret(value):
+	raise _ReturnValue(value)
 
 class Lock:
 	def __init__(self, start_time):
@@ -108,6 +114,9 @@ class Simulator:
 		try:
 			next_call = action(stack[-1])
 		except StopIteration as e:
+			stack.pop()
+			self.__proceed(stack, lambda c: c.send(None))
+		except _ReturnValue as e:
 			stack.pop()
 			self.__proceed(stack, lambda c: c.send(e.value))
 		except _SleepException as e:

@@ -4,7 +4,7 @@ import random
 from inet_sim.log import logger
 from inet_sim.network.host import AF_INET, Host, SOCK_STREAM
 from inet_sim.network.link import Link
-from inet_sim.sim import simulator, sleep
+from inet_sim.sim import simulator, sleep, get_stack
 
 log = lambda x: logger.log(x, 1)
 

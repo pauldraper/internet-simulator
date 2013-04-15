@@ -3,7 +3,7 @@ from collections import Counter
 from .link import Packet
 from .socket import Socket
 from ..log import logger
-from ..sim import attempt, resume, simulator, sleep, TimeoutException, wait
+from ..sim import attempt, resume, ret, simulator, sleep, TimeoutException, wait
 
 log = lambda x: logger.log(x, 2) #transport layer
 
@@ -110,7 +110,7 @@ class TcpSocket(Socket):
 		socket.log('state', 'LISTEN <- SYN : SYN_RCVD -> SYN+ACK')
 		socket.__sched_send(TcpPacket(socket.local, socket.remote, seq_num=0, ack_num=0, syn=True))
 		
-		return socket
+		ret(socket)
 		
 	def connect(self, addr):
 		"""Establish a connection to the specified address."""
@@ -133,7 +133,7 @@ class TcpSocket(Socket):
 		"""Send the message. Return only when finished."""
 		if not hasattr(self, 'remote'):
 			raise Exception('Must call connect() first')
-		
+		print ('sendall')
 		self.out += message
 		while self.out_ack_i < len(self.out):	
 			end = min(self.out_ack_i+self.cwnd, self.out_i+TcpPacket.mss, len(self.out))
@@ -169,7 +169,7 @@ class TcpSocket(Socket):
 				and not self.inc_read_i < self.inc_i:
 			yield wait(self.data_event)
 		message, self.inc_read_i = self.inc[self.inc_read_i:self.inc_i], self.inc_i 
-		return message
+		ret(message)
 	
 	def close(self):
 		"""Close this end of a connection."""
