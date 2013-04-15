@@ -47,8 +47,39 @@ class TcpPacket(Packet):
 		return s
 
 
+class Tahoe:
+	"""Check for loss and compensate according to TCP Tahoe."""
+	def __init__(self, socket):
+		self.socket = socket
+		self.last_ack_loss = 0
+	def ack_loss(self, ack_num):
+		if self.last_ack_loss < ack_num:
+			self.last_ack_loss = ack_num
+			self.socket.ssthresh = max(self.socket.cwnd // 2, TcpPacket.mss)
+			self.socket.cwnd = TcpPacket.mss
+		self.socket.out_i = self.socket.out_ack_i
+	def timeout_loss(self):
+		self.socket.ssthresh = max(self.socket.cwnd // 2, TcpPacket.mss)
+		self.socket.cwnd = TcpPacket.mss
+		self.socket.out_i = self.socket.out_ack_i
+
+class Reno:
+	"""Check for loss and compensate according to TCP Reno."""	
+	def __init__(self, socket):
+		self.socket = socket
+		self.last_ack_loss = 0
+	def ack_loss(self, ack_num):
+		if self.last_ack_loss < ack_num:
+			self.socket.ssthresh = max(self.socket.cwnd // 2, TcpPacket.mss)
+			self.socket.cwnd = max(self.socket.cwnd // 2, TcpPacket.mss)
+		self.socket.out_i = self.socket.out_ack_i
+	def timeout_loss(self):
+		self.socket.ssthresh = max(self.socket.cwnd // 2, TcpPacket.mss)
+		self.socket.cwnd = TcpPacket.mss
+		self.socket.out_i = self.socket.out_ack_i
+
 class TcpSocket(Socket):
-	"""Represents a TcpSocket."""
+	"""Represents a TcpSocket."""		
 
 	def __init__(self, host):
 		"""Create a TcpSocket."""
@@ -62,10 +93,10 @@ class TcpSocket(Socket):
 		self.cwnd = 15000	   #window size
 		self.ssthresh = 96000   #slow start threshold
 		self.state = 'CLOSED'   #TCP state
-		self.ack_counts = Counter()
+		self.ack_count = 0 
 		self.rtt = 8.		   #estimated round trip time
 		self.rtt_dict = {}	  #expected ack --> time sent
-		self.loss = self.tahoe_loss #TCP method for dealing with loss
+		self.loss_handler = Tahoe(self) #TCP method for dealing with loss
 		self.syn_event	  = simulator.create_lock()
 		self.syn_ack_event  = simulator.create_lock()
 		self.ack_event	  = simulator.create_lock()
@@ -149,12 +180,12 @@ class TcpSocket(Socket):
 					except TimeoutException:
 						if start <= self.out_ack_i < end:
 							self.log('loss', 'timeout {:.4}'.format(timeout))
-							self.loss(timeout=True)
+							self.loss_handler.timeout_loss()
 							yield resume(self.ack_event)
 					else:
 						if start <= self.out_ack_i < end:
 							self.log('loss', 'triple-ack {}'.format(ack_num))
-							self.loss(timeout=False)
+							self.loss_handler.ack_loss(ack_num)
 							yield resume(self.ack_event)
 				simulator.new_thread(loss())
 				
@@ -242,20 +273,21 @@ class TcpSocket(Socket):
 				self.rtt = (self.rtt + simulator.scheduler.get_time() - sent_time) / 2
 				self.rtt_dict[packet.ack_num] = None
 				self.log('timeout-adjust', '{socket.timeout:3f}'.format(socket=self))
-			if packet.ack_num > self.out_ack_i:
-				#check for triple ACKs
-				self.ack_counts[packet.ack_num] += 1
-				if self.ack_counts[packet.ack_num] >= 3: #triple ACKs
+			#check for triple ACKs
+			if packet.ack_num == self.out_ack_i:
+				self.ack_count += 1
+				if self.ack_count >= 3: #triple ACKs
+					self.ack_count = 0
 					yield resume(self.loss_event, packet.ack_num)
-				else:
-					#adjust window
-					new_bytes = packet.ack_num - self.out_ack_i
-					self.cwnd += (
-						new_bytes if self.cwnd < self.ssthresh
-						else int(new_bytes * TcpPacket.mss / self.cwnd)
-					)
-					self.out_ack_i = packet.ack_num
-					yield resume(self.ack_event)
+			#adjust window
+			elif packet.ack_num > self.out_ack_i:
+				new_bytes = packet.ack_num - self.out_ack_i
+				self.cwnd += (
+					new_bytes if self.cwnd < self.ssthresh
+					else int(new_bytes * TcpPacket.mss / self.cwnd)
+				)
+				self.out_ack_i = packet.ack_num
+				yield resume(self.ack_event)
 		else:
 			yield resume(self.ack_event)
 
@@ -286,22 +318,3 @@ class TcpSocket(Socket):
 		self.__sched_send(TcpPacket(self.local, self.remote, ack_num=packet.seq_num+1))
 		yield resume(self.data_event)
 		yield resume(self.fin_event)
-
-	#loss
-	
-	def tahoe_loss(self, timeout):
-		"""Check for loss and compensate according to TCP Tahoe."""
-		self.ack_counts.clear()
-		self.out_i = self.out_ack_i
-		self.ssthresh = max(self.cwnd // 2, TcpPacket.mss)
-		self.cwnd = TcpPacket.mss
-			
-	def reno_loss(self, timeout):
-		"""Check for loss and compensate according to TCP Reno."""
-		if timeout:
-			self.cwnd = TcpPacket.mss
-		else:
-			self.cwnd = max(self.cwnd // 2, TcpPacket.mss)
-		self.ack_counts.clear()
-		self.out_i = self.out_ack_i
-		self.ssthresh = max(self.cwnd // 2, TcpPacket.mss)
