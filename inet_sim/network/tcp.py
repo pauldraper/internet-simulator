@@ -103,7 +103,7 @@ class TcpSocket(Socket):
 
 	@property
 	def timeout(self):
-		return self.rtt * 1.5
+		return self.rtt * 4
 
 	def log(self, event_type, str):
 		"""Logs a message, including details about this TcpSocket."""
@@ -184,6 +184,8 @@ class TcpSocket(Socket):
 					yield sleep(self.timeout)
 					if start <= self.out_ack_i < end:
 						self.log('loss', 'timeout {:.4}'.format(timeout))
+						self.rtt *= 2
+						self.log('timeout-adjust', '{socket.timeout:3f}'.format(socket=self))
 						self.loss_handler.timeout_loss()
 						yield resume(self.ack_event)
 				simulator.new_thread(loss())
