@@ -75,7 +75,7 @@ class FileClient:
 			m = yield self.socket.recv()
 			if not m:
 				break
-			file.write(bytes(m))
+			file.write(''.join(m))
 		file.close()
 		yield self.socket.close()
 
