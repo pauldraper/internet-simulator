@@ -67,7 +67,6 @@ class TcpSocket(Socket):
 		self.syn_event	  = simulator.create_lock()
 		self.syn_ack_event  = simulator.create_lock()
 		self.ack_event	  = simulator.create_lock()
-		self.final_ack_event = simulator.create_lock()
 		self.data_event	 = simulator.create_lock()
 		self.fin_event	  = simulator.create_lock()
 		self.loss_event	 = simulator.create_lock()
@@ -173,7 +172,7 @@ class TcpSocket(Socket):
 		"""Close this end of a connection."""
 		def fin():
 			self.__sched_send(TcpPacket(self.local, self.remote, seq_num=len(self.out), fin=True))
-			return wait(self.final_ack_event, self.timeout)
+			return wait(self.ack_event, self.timeout)
 		
 		if self.state == 'ESTABLISHED' or self.state == 'SYN_RCVD':
 			self.state = 'FIN_WAIT_1'
@@ -245,16 +244,17 @@ class TcpSocket(Socket):
 				self.ack_counts[packet.ack_num] += 1
 				if self.ack_counts[packet.ack_num] >= 3: #triple ACKs
 					yield resume(self.loss_event, packet.ack_num)
-				#adjust window
-				new_bytes = packet.ack_num - self.out_ack_i
-				self.cwnd += (
-					new_bytes if self.cwnd < self.ssthresh
-					else int(new_bytes * TcpPacket.mss / self.cwnd)
-				)
-				self.out_ack_i = packet.ack_num
-				yield resume(self.ack_event)
+				else:
+					#adjust window
+					new_bytes = packet.ack_num - self.out_ack_i
+					self.cwnd += (
+						new_bytes if self.cwnd < self.ssthresh
+						else int(new_bytes * TcpPacket.mss / self.cwnd)
+					)
+					self.out_ack_i = packet.ack_num
+					yield resume(self.ack_event)
 		else:
-			yield resume(self.final_ack_event)
+			yield resume(self.ack_event)
 
 	def __syn(self, packet):
 		if self.state == 'SYN_RCVD' or self.state == 'ESTABLISHED':
