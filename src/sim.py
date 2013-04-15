@@ -37,8 +37,8 @@ class _SleepException(Exception):
 def sleep(timeout):
 	"""Sleep for timeout."""
 	raise _SleepException(timeout)
-	return #In Python 3.3, simply use `yield from iter(())`
 	yield
+
 
 class _WaitException(Exception):
 	"""Thrown when wait is needed."""
@@ -47,7 +47,6 @@ class _WaitException(Exception):
 		self.timeout = timeout
 def wait(lock, timeout=None):
 	raise _WaitException(lock, timeout)
-	return #In Python 3.3, simply use `yield from iter(())`
 	yield
 	
 class _ResumeException(Exception):
@@ -57,7 +56,12 @@ class _ResumeException(Exception):
 		self.args = args
 def resume(lock, *args):
 	raise _ResumeException(lock, args)
-	return #In Python 3.3, simply use `yield from iter(())`
+	yield
+
+class _GetStackException:
+	pass
+def get_stack():
+	raise _GetStackException()
 	yield
 	
 class TimeoutException(Exception):
@@ -72,18 +76,20 @@ def attempt(f, attempts):
 			pass
 	raise TimeoutException
 
+class Lock:
+	def __init__(self, start_time):
+		self._waiting = []
+		self._last_released = start_time
+
 class Simulator:
 	"""Controls function calls and flow."""
-
+	
 	def __init__(self):
 		"""Creates a new Simulator."""
 		self.scheduler = Scheduler()
 	
 	def create_lock(self):
-		class Lock:
-			def __init__(self, start_time):
-				self.waiting = []
-				self.last_released = start_time
+		"""Create a lock for use in wait() and resume()."""
 		return Lock(self.scheduler.get_time())
 	
 	def new_thread(self, gen):
@@ -105,21 +111,29 @@ class Simulator:
 			stack.pop()
 			self.__proceed(stack, lambda c: c.send(e.value))
 		except _SleepException as e:
+			stack.pop()
 			self.scheduler.add(self.__proceed, (stack,), e.timeout)
 		except _WaitException as e:
 			stack.pop()
-			e.lock.waiting.append(stack)
+			e.lock._waiting.append(stack)
 			if e.timeout is not None:
-				start_time = self.scheduler.get_time()
-				def timed_out(e=e):
-					if start_time >= e.lock.last_released:
+				def timed_out(e=e, start_time=self.scheduler.get_time()):
+					if start_time >= e.lock._last_released:
 						self.__proceed(stack, lambda c: c.throw(TimeoutException))
 				self.scheduler.add(timed_out, delay=e.timeout)
 		except _ResumeException as e:
-			stacks, e.lock.waiting = e.lock.waiting, []
-			e.lock.last_released = self.scheduler.get_time()
-			for stack in stacks:
-				self.__proceed(stack, lambda c: c.send(e.args))
+			stack.pop()
+			stacks, e.lock._waiting = e.lock._waiting, []
+			e.lock._last_released = self.scheduler.get_time()
+			for s in stacks:
+				self.__proceed(s, lambda c: c.send(e.args))
+			self.__proceed(stack, lambda c: c.send(None))
+		except _GetStackException as e:
+			stack.pop()
+			self.__proceed(stack, lambda c: c.send(stack))
+		except BaseException as e: #change to Exception? (but then what about Generator exit?)
+			stack.pop()
+			self.__proceed(stack, lambda c: c.throw(e))
 		else:
 			stack.append(next_call)
 			self.__proceed(stack)
