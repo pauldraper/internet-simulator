@@ -1,3 +1,4 @@
+from __future__ import division
 from collections import Counter
 
 from .link import Packet
@@ -133,7 +134,6 @@ class TcpSocket(Socket):
 		"""Send the message. Return only when finished."""
 		if not hasattr(self, 'remote'):
 			raise Exception('Must call connect() first')
-		print ('sendall')
 		self.out += message
 		while self.out_ack_i < len(self.out):	
 			end = min(self.out_ack_i+self.cwnd, self.out_i+TcpPacket.mss, len(self.out))

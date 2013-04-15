@@ -1,10 +1,9 @@
 import argparse
-import string
 
 import matplotlib
 from pylab import *
 
-from ..parse import EventParser
+from inet_sim.plot.parse import EventParser
 
 class SequencePlotter:
 	"""Plots a graph of sequence numbers."""
@@ -16,8 +15,8 @@ class SequencePlotter:
 		for event in parser.parse():
 			if event.name == 'tcp-send' and event.args[0] == ip_port and event.args[2] == 'data':
 				end = int(event.args[3].split('-')[1])
-				acks.append((event.time, end+1))
-			if event.name == 'tcp-recv' and event.args[0] == ip_port and event.args[2] == 'ack':
+				sends.append((event.time, end+1))
+			elif event.name == 'tcp-recv' and event.args[0] == ip_port and event.args[2] == 'ack':
 				acks.append((event.time, int(event.args[3])))
 		self.sends = sends
 		self.acks = acks
@@ -34,23 +33,24 @@ class SequencePlotter:
 			x.append(time)
 			y.append(seq % 75000)
 		for time, seq in self.acks:
-			ackX.append(time)
+			ackX.append(time+.2)
 			ackY.append(seq % 75000)
 		scatter(x, y, marker='s', s=3)
-		scatter(ackX, ackY, marker='s', s=0.2)
+		scatter(ackX, ackY, marker='s', c='r', s=0.2)
 		xlabel('Time (seconds)')
 		ylabel('Sequence Number Mod 75000')
-		xlim([self.min_time,self.max_time])
+		xlim([min(x), max(x)])
+		ylim([0, 75000])
 		savefig(file_path)
 
 def _parse_args():
 		parser = argparse.ArgumentParser(description='Plot queue size over time')
-		parser.add_argument('-i', '--input' , type=string, dest='input_file', help='input file')
-		parser.add_argument('-o', '--output' , type=string, dest='output_file', help='output file')
+		parser.add_argument('-i', '--input' , dest='input_file', help='input file')
+		parser.add_argument('-o', '--output' , dest='output_file', help='output file')
 		return parser.parse_args()
 
 if __name__ == '__main__':
 	args = _parse_args()
 	p = SequencePlotter()
-	p.parse(EventParser(args.input_file))
+	p.parse(EventParser(args.input_file), '101.0.0.0:80')
 	p.plot(args.output_file)

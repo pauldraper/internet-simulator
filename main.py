@@ -1,3 +1,4 @@
+from __future__ import division
 from datetime import datetime
 import random
 
@@ -75,7 +76,7 @@ class FileClient:
 			m = yield self.socket.recv()
 			if not m:
 				break
-			file.write(bytes(m))
+			file.write(m)
 		file.close()
 		yield self.socket.close()
 
@@ -98,8 +99,8 @@ if __name__ == '__main__':
 	# intialize network
 	host1 = Host('123.0.0.0')
 	host2 = Host('101.0.0.0')
-	link1 = Link(host1, host2, 0.5, 10000)
-	link2 = Link(host2, host1, 0.5, 10000)
+	link1 = Link(host1, host2, 0.5, 15000)
+	link2 = Link(host2, host1, 0.5, 15000)
 	link1.loss = .0
 	link2.loss = .0
 

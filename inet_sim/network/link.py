@@ -1,3 +1,4 @@
+from __future__ import division
 from collections import deque
 import random
 
@@ -36,7 +37,7 @@ class Link:
 		self.bandwidth = bandwidth
 		self.busy = False
 		self.queue = deque()
-		self.max_queue_size = 50
+		self.max_queue_size = 5
 		self.id = Link.id_counter
 		self.loss = 0
 		self.reorder = 0
