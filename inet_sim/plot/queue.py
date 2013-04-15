@@ -1,11 +1,10 @@
-import itertools
 import argparse
 import string
 
 import matplotlib
 from pylab import *
 
-from plot_parse import EventParser
+from ..parse import EventParser
 
 class QueuePlotter:
 	"""Parses a file of queue events and plots a graph over time."""
@@ -28,10 +27,9 @@ class QueuePlotter:
 		self.drops = drops
 
 	def save(self, file_path, max_queue):
-		"""Create and save a graph."""
+		"""Create and save the graph."""
 		if not hasattr(self, 'sizes') or not hasattr(self, 'drops'):
 			raise Exception('nothing loaded, please load() first')
-		
 		clf()
 		x, y = [], []
 		drop_x, drop_y = [], []
@@ -43,15 +41,12 @@ class QueuePlotter:
 			else:
 				x.append(time)
 				y.append(size)
-
 		plot(x,y)
 		scatter(dropX, dropY, marker='x', color='black')
-		xlabel('Time (sseconds)')
+		xlabel('Time (seconds)')
 		ylabel('Queue Size (packets)')
-		min_time = min(time for time,size in itertools.chain(self.data, self.drops))
-		max_time = max(time for time,size in itertools.chain(self.data, self.drops))
-		xlim([min_time, max_time])
-		ylim([0,max_queue+2])
+		xlim([min(x), max(x)])
+		ylim([0, max_queue+2])
 		savefig(file_path)
 
 def _parse_args():
