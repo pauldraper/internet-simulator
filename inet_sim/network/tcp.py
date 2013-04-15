@@ -57,7 +57,6 @@ class Tahoe:
 			self.last_ack_loss = ack_num
 			self.socket.ssthresh = max(self.socket.cwnd // 2, TcpPacket.mss)
 			self.socket.cwnd = TcpPacket.mss
-		self.socket.out_i = self.socket.out_ack_i
 	def timeout_loss(self):
 		self.socket.ssthresh = max(self.socket.cwnd // 2, TcpPacket.mss)
 		self.socket.cwnd = TcpPacket.mss
@@ -72,7 +71,6 @@ class Reno:
 		if self.last_ack_loss < ack_num:
 			self.socket.ssthresh = max(self.socket.cwnd // 2, TcpPacket.mss)
 			self.socket.cwnd = max(self.socket.cwnd // 2, TcpPacket.mss)
-		self.socket.out_i = self.socket.out_ack_i
 	def timeout_loss(self):
 		self.socket.ssthresh = max(self.socket.cwnd // 2, TcpPacket.mss)
 		self.socket.cwnd = TcpPacket.mss
@@ -102,7 +100,6 @@ class TcpSocket(Socket):
 		self.ack_event	  = simulator.create_lock()
 		self.data_event	 = simulator.create_lock()
 		self.fin_event	  = simulator.create_lock()
-		self.loss_event	 = simulator.create_lock()
 
 	@property
 	def timeout(self):
@@ -161,34 +158,36 @@ class TcpSocket(Socket):
 		self.log('state', 'SYN_SENT <- SYN_ACK : ESTABLISHED -> ACK')
 		self.__sched_send(TcpPacket(self.local, self.remote, ack_num=0))
 
+	def __send_data(self, start):
+		"""Send a single data packet beginning at start, if data is available.
+		Return the next sequence number after this packet, or None is no data was available.
+		"""
+		end = min(self.out_ack_i+self.cwnd, start+TcpPacket.mss, len(self.out))
+		if start < end:
+			message = self.out[start:end]
+			self.__sched_send(TcpPacket(self.local, self.remote, message, seq_num=start))
+			return end
+
 	def sendall(self, message):
 		"""Send the message. Return only when finished."""
 		if not hasattr(self, 'remote'):
 			raise Exception('Must call connect() first')
 		self.out += message
 		while self.out_ack_i < len(self.out):	
-			end = min(self.out_ack_i+self.cwnd, self.out_i+TcpPacket.mss, len(self.out))
-			if self.out_i < end:
-				message = self.out[self.out_i:end]
-				self.__sched_send(TcpPacket(self.local, self.remote, message, seq_num=self.out_i))
+			end = self.__send_data(self.out_i)
+			if end is not None:
+				#add to rtt
 				if end not in self.rtt_dict:
 					self.rtt_dict[end] = simulator.scheduler.get_time()
-				
+				#set timeout
 				def loss(start=self.out_i, end=end, timeout=self.timeout):
-					try:
-						ack_num, = yield wait(self.loss_event, timeout)
-					except TimeoutException:
-						if start <= self.out_ack_i < end:
-							self.log('loss', 'timeout {:.4}'.format(timeout))
-							self.loss_handler.timeout_loss()
-							yield resume(self.ack_event)
-					else:
-						if start <= self.out_ack_i < end:
-							self.log('loss', 'triple-ack {}'.format(ack_num))
-							self.loss_handler.ack_loss(ack_num)
-							yield resume(self.ack_event)
+					yield sleep(self.timeout)
+					if start <= self.out_ack_i < end:
+						self.log('loss', 'timeout {:.4}'.format(timeout))
+						self.loss_handler.timeout_loss()
+						yield resume(self.ack_event)
 				simulator.new_thread(loss())
-				
+				#update next send index
 				self.out_i = end
 			else:
 				yield wait(self.ack_event)
@@ -278,7 +277,8 @@ class TcpSocket(Socket):
 				self.ack_count += 1
 				if self.ack_count >= 3: #triple ACKs
 					self.ack_count = 0
-					yield resume(self.loss_event, packet.ack_num)
+					self.loss_handler.ack_loss(packet.ack_num)
+					self.__send_data(packet.ack_num)
 			#adjust window
 			elif packet.ack_num > self.out_ack_i:
 				new_bytes = packet.ack_num - self.out_ack_i
