@@ -58,7 +58,7 @@ def resume(lock, *args):
 	raise _ResumeException(lock, args)
 	yield
 
-class _GetStackException:
+class _GetStackException(Exception):
 	pass
 def get_stack():
 	raise _GetStackException()
@@ -119,6 +119,7 @@ class Simulator:
 			if e.timeout is not None:
 				def timed_out(e=e, start_time=self.scheduler.get_time()):
 					if start_time >= e.lock._last_released:
+						e.lock._waiting.remove(stack)
 						self.__proceed(stack, lambda c: c.throw(TimeoutException))
 				self.scheduler.add(timed_out, delay=e.timeout)
 		except _ResumeException as e:
