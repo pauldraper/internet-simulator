@@ -1,7 +1,8 @@
 from collections import deque
 import random
 
-from sim import simulator, sleep, logger
+from ..log import logger
+from ..sim import simulator, sleep
 
 log = lambda x: logger.log(x, 3)
 

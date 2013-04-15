@@ -1,6 +1,6 @@
 from abc import ABCMeta, abstractmethod
 
-from sim import logger
+from ..log import logger
 
 log = lambda x: logger.log(x, 2)
 

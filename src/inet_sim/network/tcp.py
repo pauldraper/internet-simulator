@@ -1,8 +1,9 @@
 from collections import Counter
 
-from link import Packet
-from sim import *
+from .link import Packet
 from .socket import Socket
+from ..log import logger
+from ..sim import attempt, resume, simulator, sleep, TimeoutException, wait
 
 log = lambda x: logger.log(x, 2) #transport layer
 
@@ -149,11 +150,12 @@ class TcpSocket(Socket):
 						if start <= self.out_ack_i < end:
 							self.log('loss', 'timeout {:.4}'.format(timeout))
 							self.loss(timeout=True)
+							yield resume(self.ack_event)
 					else:
 						if start <= self.out_ack_i < end:
 							self.log('loss', 'triple-ack {}'.format(ack_num))
 							self.loss(timeout=False)
-					yield resume(self.ack_event)	
+							yield resume(self.ack_event)
 				simulator.new_thread(loss())
 				
 				self.out_i = end
@@ -163,7 +165,8 @@ class TcpSocket(Socket):
 	def recv(self):
 		"""Return incoming data. At least one byte will be returned, unless the other side has
 		closed."""
-		if not self.inc_read_i < self.inc_i:
+		while self.state in ('SYN_RCVD', 'ESTABLISHED', 'TIME_WAIT_1', 'TIME_WAIT_2') \
+				and not self.inc_read_i < self.inc_i:
 			yield wait(self.data_event)
 		message, self.inc_read_i = self.inc[self.inc_read_i:self.inc_i], self.inc_i 
 		return message
@@ -281,6 +284,7 @@ class TcpSocket(Socket):
 			self.state = 'CLOSE_WAIT'
 			self.log('state', 'ESTABLISHED <- FIN : ACK -> CLOSE_WAIT') 
 		self.__sched_send(TcpPacket(self.local, self.remote, ack_num=packet.seq_num+1))
+		yield resume(self.data_event)
 		yield resume(self.fin_event)
 
 	#loss

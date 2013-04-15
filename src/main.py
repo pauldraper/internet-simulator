@@ -1,9 +1,10 @@
 from datetime import datetime
 import random
 
-from host import *
-from link import Link
-from sim import simulator, sleep
+from inet_sim.log import logger
+from inet_sim.network.host import AF_INET, Host, SOCK_STREAM
+from inet_sim.network.link import Link
+from inet_sim.sim import simulator, sleep
 
 log = lambda x: logger.log(x, 1)
 
@@ -99,8 +100,8 @@ if __name__ == '__main__':
 	host2 = Host('101.0.0.0')
 	link1 = Link(host1, host2, 0.5, 10000)
 	link2 = Link(host2, host1, 0.5, 10000)
-	link1.loss = .1
-	link2.loss = .1
+	link1.loss = .0
+	link2.loss = .0
 
 	logger.level = 2
 	

@@ -1,7 +1,7 @@
-from link import Link
-from sim import logger
-from socket.tcp import TcpSocket
-from socket.udp import UdpSocket
+from .link import Link
+from ..log import logger
+from ..network.tcp import TcpSocket
+from ..network.udp import UdpSocket
 
 log = lambda x: logger.log(x, 2)
 

@@ -1,9 +1,9 @@
 """This has fallen into disuse and its functionality needs to be verfied."""
 from collections import deque
 
-from link import Packet
-from sim import logger
+from .link import Packet
 from .socket import Socket
+from ..log import logger
 
 log = lambda x: logger.log(x, 2)
 
