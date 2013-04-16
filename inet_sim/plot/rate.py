@@ -65,4 +65,4 @@ def _parse_args():
 if __name__ == '__main__':
 	args = _parse_args()
 	p = RatePlotter()
-	p.plot(args.input_file, args.output_file, '123.0.0.0:32768', '123.0.0.0:32769', '123.0.0.0:32770', '123.0.0.0:32771', '123.0.0.0:32772')
+	p.plot(args.input_file, args.output_file, '123.0.0.0:32768', '123.0.0.0:32769', '123.0.0.0:32770')

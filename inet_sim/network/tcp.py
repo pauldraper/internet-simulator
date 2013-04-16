@@ -80,6 +80,7 @@ class Reno(Congestion):
 		Congestion.__init__(self, socket)
 		self.state = Tahoe.SLOW_START
 	def new_ack(self, num_bytes):
+		num_bytes = TcpPacket.mss
 		if self.state == Reno.SLOW_START:
 			self.cwnd += num_bytes
 			self.socket.log('cwnd-adjust', '{}'.format(self.cwnd))
@@ -94,12 +95,12 @@ class Reno(Congestion):
 			self.state = Reno.CONGESTION_AVOIDANCE
 	def dup_ack(self, ack_num):
 		if self.state == Reno.FAST_RECOVERY:
-			self.socket.cwnd += TcpPacket.mss
+			self.cwnd += TcpPacket.mss
 			self.socket.log('cwnd-adjust', '{}'.format(self.cwnd))
 		else:
 			self.dup_ack_count += 1
 			if self.dup_ack_count == 3:
-				self.__send_data(ack_num)
+				self.socket._send_data(ack_num)
 				self.socket.log('loss', 'triple-ack {}'.format(ack_num))
 				self.ssthresh = int(self.cwnd / 2)
 				self.socket.log('ssthresh-adjust', '{}'.format(self.ssthresh))
@@ -156,7 +157,7 @@ class TcpSocket(Socket):
 		self._ssthresh = 96000
 		self.last_loss = 0
 		self.ack_count = 0    #count of last acks
-		self.congestion  = Tahoe(self) #TCP method for dealing with loss
+		self.congestion  = Reno(self) #TCP method for dealing with loss
 		self.syn_event	   = simulator.create_lock()
 		self.syn_ack_event = simulator.create_lock()
 		self.ack_event	   = simulator.create_lock()
