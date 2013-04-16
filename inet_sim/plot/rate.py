@@ -27,22 +27,22 @@ class RatePlotter:
 		y = [0]
 		total = 0
 		i, j = 0, 0
-		for t in xrange(0, 2*int(data[-1][0])):
-			time = t / 2
-			while data[i][0] < time - 2:
+		for t in xrange(0, 1*int(data[-1][0])):
+			time = t / 1
+			while data[i][0] < time - 20:
 				total -= data[i][1]
 				i += 1
 			while data[j][0] < time:
 				total += data[j][1]
 				j += 1
 			x.append(time)
-			y.append(total * 8 / 10e3 / 2)
+			y.append(total * 8 / 10e3 / 20)
 		return x, y
 
 	def plot(self, input_file, file_path, *ip_ports):
 		"""Create and save the graph."""
 		clf()
-		colors = ['g','b','r','y','p']
+		colors = ['g','b','r','y','m']
 		parser = EventParser(args.input_file)
 		mx, mn = 0, 10e9
 		for i, ip_port in enumerate(ip_ports): 
@@ -65,4 +65,4 @@ def _parse_args():
 if __name__ == '__main__':
 	args = _parse_args()
 	p = RatePlotter()
-	p.plot(args.input_file, args.output_file, '123.0.0.0:32768', '123.0.0.0:32769')
+	p.plot(args.input_file, args.output_file, '123.0.0.0:32768', '123.0.0.0:32769', '123.0.0.0:32770', '123.0.0.0:32771', '123.0.0.0:32772')
