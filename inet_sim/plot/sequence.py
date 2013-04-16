@@ -14,8 +14,8 @@ class SequencePlotter:
 		acks = []
 		for event in parser.parse():
 			if event.name == 'tcp-send' and event.args[0] == ip_port and event.args[2] == 'data':
-				end = int(event.args[3].split('-')[1])
-				sends.append((event.time, end+1))
+				end = int(event.args[3].split('-')[1]) + 1
+				sends.append((event.time, end))
 			elif event.name == 'tcp-recv' and event.args[0] == ip_port and event.args[2] == 'ack':
 				acks.append((event.time, int(event.args[3])))
 		self.sends = sends
@@ -31,16 +31,16 @@ class SequencePlotter:
 		ackX, ackY = [], []
 		for time, seq in self.sends:
 			x.append(time)
-			y.append(seq % 75000)
+			y.append(seq % 200000)
 		for time, seq in self.acks:
-			ackX.append(time+.2)
-			ackY.append(seq % 75000)
-		scatter(x, y, marker='s', s=3)
-		scatter(ackX, ackY, marker='s', c='r', s=0.2)
+			ackX.append(time)
+			ackY.append(seq % 200000)
+		scatter(x, y, marker='o', s=7, linewidths=(0.,))
+		scatter(ackX, ackY, marker='+', c='g', s=9)
 		xlabel('Time (seconds)')
-		ylabel('Sequence Number Mod 75000')
-		xlim([min(x), max(x)])
-		ylim([0, 75000])
+		ylabel('Sequence Number Mod 200000')
+		xlim([0, max(x)])
+		ylim([0, 200000])
 		savefig(file_path)
 
 def _parse_args():

@@ -141,9 +141,12 @@ class Simulator:
 		except _GetStackException as e:
 			stack.pop()
 			self.__proceed(stack, lambda c: c.send(stack))
-		except BaseException as e: #change to Exception? (but then what about Generator exit?)
-			stack.pop()
-			self.__proceed(stack, lambda c: c.throw(e))
+		#except BaseException as e: #change to Exception? (but then what about Generator exit?)
+			#stack.pop()
+			#if stack:
+			#	self.__proceed(stack, lambda c: c.throw(e))
+			#else:
+			#	raise
 		else:
 			stack.append(next_call)
 			self.__proceed(stack)

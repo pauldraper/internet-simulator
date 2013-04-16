@@ -11,7 +11,7 @@ log = lambda x: logger.log(x, 2) #transport layer
 class TcpPacket(Packet):
 	"""Represents a TCP packet."""
 
-	mss = 1500 #maximum segment size
+	mss = 3000 #maximum segment size
 
 	def __init__(self, origin, dest, message=None, seq_num=None, ack_num=None, syn=False, fin=False):
 		"""Create a TCP packet."""
@@ -82,33 +82,57 @@ class TcpSocket(Socket):
 	def __init__(self, host):
 		"""Create a TcpSocket."""
 		Socket.__init__(self, host)
-		self.inc = []		   #incoming buffer
+		self.inc = []		  #incoming buffer
 		self.inc_i = 0		  #length of in-order bytes
-		self.inc_read_i = 0	 #length of read bytes
-		self.out = []		   #outgoing buffer
+		self.inc_read_i = 0	  #length of read bytes
+		self.out = []		  #outgoing buffer
 		self.out_i = 0		  #length of bytes sent
 		self.out_ack_i = 0	  #length of bytes acknowledged
-		self.cwnd = 15000	   #window size
-		self.ssthresh = 96000   #slow start threshold
-		self.state = 'CLOSED'   #TCP state
-		self.ack_count = 0 
-		self.rtt = 8.		   #estimated round trip time
+		self.state = 'CLOSED'  #TCP state
+		self._timeout = 3.
+		self._cwnd = TcpPacket.mss
+		self._ssthresh = 96000
+		self.min_duplicate_ack = 0
+		self.ack_count = 0    #count of last acks
 		self.rtt_dict = {}	  #expected ack --> time sent
-		self.loss_handler = Tahoe(self) #TCP method for dealing with loss
-		self.syn_event	  = simulator.create_lock()
-		self.syn_ack_event  = simulator.create_lock()
-		self.ack_event	  = simulator.create_lock()
-		self.data_event	 = simulator.create_lock()
-		self.fin_event	  = simulator.create_lock()
+		self.loss_handler  = Tahoe(self) #TCP method for dealing with loss
+		self.syn_event	   = simulator.create_lock()
+		self.syn_ack_event = simulator.create_lock()
+		self.ack_event	   = simulator.create_lock()
+		self.data_event	   = simulator.create_lock()
+		self.fin_event	   = simulator.create_lock()
 
+	"""Timeout."""
 	@property
 	def timeout(self):
-		return self.rtt * 4
-
-	def log(self, event_type, str):
+		return self._timeout
+	@timeout.setter
+	def timeout(self, value):
+		self._timeout = value
+		self.log('timeout-adjust', '{socket.timeout}'.format(socket=self))
+	
+	"""Congestion window."""
+	@property
+	def cwnd(self):
+		return self._cwnd
+	@cwnd.setter
+	def cwnd(self, value):
+		self._cwnd = value
+		self.log('cwnd-adjust', '{socket.cwnd}'.format(socket=self))
+	
+	"""Slow start threshold."""
+	@property
+	def ssthresh(self):
+		return self._ssthresh
+	@ssthresh.setter
+	def ssthresh(self, value):
+		self._ssthresh = value
+		self.log('ssthresh-adjust', '{socket.ssthresh}'.format(socket=self))
+	
+	def log(self, event_type, info):
 		"""Logs a message, including details about this TcpSocket."""
 		local_str = '{addr[0]}:{addr[1]}'.format(addr=self.local)
-		return log('tcp-{} {:15} {}'.format(event_type, local_str, str))
+		return log('tcp-{} {:15} {}'.format(event_type, local_str, info))
 
 	# public methods
 
@@ -184,8 +208,8 @@ class TcpSocket(Socket):
 					yield sleep(self.timeout)
 					if start <= self.out_ack_i < end:
 						self.log('loss', 'timeout {:.4}'.format(timeout))
-						self.rtt *= 2
-						self.log('timeout-adjust', '{socket.timeout:3f}'.format(socket=self))
+						self.timeout *= 2
+						self.min_duplicate_ack = end + 1
 						self.loss_handler.timeout_loss()
 						yield resume(self.ack_event)
 				simulator.new_thread(loss())
@@ -271,14 +295,15 @@ class TcpSocket(Socket):
 			#re-estimate rtt
 			sent_time = self.rtt_dict.get(packet.ack_num, None)
 			if sent_time:
-				self.rtt = (self.rtt + simulator.scheduler.get_time() - sent_time) / 2
 				self.rtt_dict[packet.ack_num] = None
-				self.log('timeout-adjust', '{socket.timeout:3f}'.format(socket=self))
+				self.timeout = (self.timeout + 2.5 * (simulator.scheduler.get_time() - sent_time)) / 2
 			#check for triple ACKs
-			if packet.ack_num == self.out_ack_i:
+			if packet.ack_num == self.out_ack_i and packet.ack_num > self.min_duplicate_ack:
 				self.ack_count += 1
 				if self.ack_count >= 3: #triple ACKs
 					self.ack_count = 0
+					self.min_duplicate_ack = packet.ack_num + 1
+					self.log('loss', 'triple-ack {}'.format(packet.ack_num))
 					self.loss_handler.ack_loss(packet.ack_num)
 					self.__send_data(packet.ack_num)
 			#adjust window
@@ -286,9 +311,13 @@ class TcpSocket(Socket):
 				new_bytes = packet.ack_num - self.out_ack_i
 				self.cwnd += (
 					new_bytes if self.cwnd < self.ssthresh
-					else int(new_bytes * TcpPacket.mss / self.cwnd)
+					else max(TcpPacket.mss, int(new_bytes * TcpPacket.mss / self.cwnd))
 				)
+				self.out_i = max(self.out_i, packet.ack_num)
 				self.out_ack_i = packet.ack_num
+				yield resume(self.ack_event)
+			else:
+				self.cwnd += TcpPacket.mss
 				yield resume(self.ack_event)
 		else:
 			yield resume(self.ack_event)
