@@ -23,32 +23,36 @@ class RatePlotter:
 				start, end = map(int, event.args[3].split('-'))
 				if start >= ack_num:
 					data.append((event.time, end-start+1))
-		self.data = data
-
-	def plot(self, file_path):
-		"""Create and save the graph."""
-		if not hasattr(self, 'data'):
-			raise Exception('nothing loaded, please load() first')
-		clf()
 		x = [0]
 		y = [0]
 		total = 0
 		i, j = 0, 0
-		for t in xrange(0, 2*int(self.data[-1][0])):
+		for t in xrange(0, 2*int(data[-1][0])):
 			time = t / 2
-			while self.data[i][0] < time - 1.2:
-				total -= self.data[i][1]
+			while data[i][0] < time - 2:
+				total -= data[i][1]
 				i += 1
-			while self.data[j][0] < time:
-				total += self.data[j][1]
-				j += 1	
+			while data[j][0] < time:
+				total += data[j][1]
+				j += 1
 			x.append(time)
-			y.append(total * 8 / 10e3 / 1.2)
-		plot(x,y)
+			y.append(total * 8 / 10e3 / 2)
+		return x, y
+
+	def plot(self, input_file, file_path, *ip_ports):
+		"""Create and save the graph."""
+		clf()
+		colors = ['g','b','r','y','p']
+		parser = EventParser(args.input_file)
+		mx, mn = 0, 10e9
+		for i, ip_port in enumerate(ip_ports): 
+			x, y = self.load(parser, ip_port)
+			#mx = max(mx, max(x))
+			plot(x, y, c=colors[i])
 		xlabel('Time (seconds)')
 		ylabel('Rate (Kbps)')
 		xlim([0, max(x)])
-		ylim([0, max(y)])
+		#ylim([0, max(y)])
 		print max(y)
 		savefig(file_path)
 
@@ -61,5 +65,4 @@ def _parse_args():
 if __name__ == '__main__':
 	args = _parse_args()
 	p = RatePlotter()
-	p.load(EventParser(args.input_file), '123.0.0.0:32768')
-	p.plot(args.output_file)
+	p.plot(args.input_file, args.output_file, '123.0.0.0:32768', '123.0.0.0:32769')

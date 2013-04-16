@@ -85,7 +85,7 @@ def demo_client_server(host1, host2, n_client=1, n_server=1):
 	server_ip = host2.ip
 	for i in range(0,n_client):
 		def c(client=FileClient(host1, (server_ip, 80+i))):
-			yield sleep(i*2)
+			#yield sleep(i*2)
 			yield client.download_file()
 		simulator.new_thread(c())	
 	for i in range(0,n_server):
@@ -101,14 +101,14 @@ if __name__ == '__main__':
 	# intialize network
 	host1 = Host('123.0.0.0')
 	host2 = Host('101.0.0.0')
-	link1 = Link(host1, host2, 0.5, 52000)
-	link2 = Link(host2, host1, 0.5, 52000)
+	link1 = Link(host1, host2, 0.5, 104000)
+	link2 = Link(host2, host1, 0.5, 104000)
 	link1.loss = .0
 	link2.loss = .0
 
 	logger.level = 3
 	
-	demo_client_server(host1, host2, 1, 1)
+	demo_client_server(host1, host2, 2, 2)
 
 	# clean up
 	del host1
