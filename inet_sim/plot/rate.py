@@ -47,8 +47,8 @@ class RatePlotter:
 		plot(x,y)
 		xlabel('Time (seconds)')
 		ylabel('Rate (Kbps)')
-		xlim([min(x), max(x)])
-		ylim([0, 15])
+		xlim([0, max(x)])
+		ylim([0, max(y)])
 		print max(y)
 		savefig(file_path)
 

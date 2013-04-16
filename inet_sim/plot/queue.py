@@ -39,13 +39,12 @@ class QueuePlotter:
 		for time, size in self.drops:
 			drop_x.append(time)
 			drop_y.append(size)
-			print time, size
 		plot(x,y)
 		scatter(drop_x, drop_y, marker='x', color='black')
 		xlabel('Time (seconds)')
 		ylabel('Queue Size (packets)')
 		xlim([min(x), max(x)])
-		ylim([0, max_queue+2])
+		ylim([0, max(y)+2])
 		savefig(file_path)
 
 def _parse_args():

@@ -37,7 +37,7 @@ class Link:
 		self.bandwidth = bandwidth
 		self.busy = False
 		self.queue = deque()
-		self.max_queue_size = 15
+		self.max_queue_size = 24
 		self.id = Link.id_counter
 		self.loss = 0
 		self.reorder = 0
