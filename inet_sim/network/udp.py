@@ -1,10 +1,10 @@
 """This has fallen into disuse and its functionality needs to be verfied."""
 from collections import deque
 
-from .link import Packet
+from .link import IpPacket
 from .socket import Socket
 
-class UdpPacket(Packet):
+class UdpPacket(IpPacket):
 
 	def __init__(self, origin, dest, message):
 		Packet.__init__(self, message)
@@ -38,12 +38,10 @@ class UdpSocket(Socket):
 			raise Exception("Must call connect() first")
 		self.sendto(message, self.remote)
 
-	def recvfrom(self, handler):
-		self.recvfrom_handler = handler
+	def recvfrom(self):
 		self.__check_buffer()
 
-	def recv(self, handler):
-		self.recv_handler = handler
+	def recv(self):
 		self.__check_buffer()
 
 	def close(self):

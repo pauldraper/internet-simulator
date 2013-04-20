@@ -16,13 +16,7 @@ class Socket:
 		logging.getLogger(__name__).log(level, '%s %s %s '+fmt, self.local[0], self.local[1], event_type, *args, **kwargs)
 
 	def sched_send(self, packet):
-		"""Enqueue the given Packet on the correct outbound Link, depending on the Packet's
-		destination address.
-		"""
-		try:
-			self.host.routing[packet.dest[0]].enqueue(packet)
-		except KeyError:
-			raise Exception('No routing entry for %s'.format(packet.dest[0]))
+		self.host.send(packet)
 
 	@abstractmethod
 	def _buffer(self, packet):

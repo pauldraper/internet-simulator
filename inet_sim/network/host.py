@@ -1,23 +1,23 @@
 import logging
 
-from .link import Link
-from ..network.tcp import TcpSocket, TcpPacket
-from ..network.udp import UdpSocket, UdpPacket
+from .link import Link, IpPacket
+from .tcp import TcpSocket, TcpPacket
+from .udp import UdpSocket, UdpPacket
+from .routing import Node
 
 AF_INET = 'AF_INET' #IP
 SOCK_DGRAM = 'SOCK_DGRAM'   #UDP
 SOCK_STREAM = 'SOCK_STREAM' #TCP
 
-class Host:
+class Host(Node):
 	"""Represents an endpoint on the Internet.
 	Currently, a Host may have exactly one IP address.
 	"""
 
 	def __init__(self, ip):
 		"""Construct a host with the given ip address."""
-		self.ip = ip
-		self.routing = {}        #ip address to link
-		Link(self, self, 1e-6, 1e9) #loopback
+		Node.__init__(self, ip)
+		Link.duplex_link(self, self, 1e-6, 1e9)
 		self.port_to_udp = {}
 		self.port_to_tcp = {}
 		self.origin_to_tcp = {}
@@ -26,21 +26,10 @@ class Host:
 		level = kwargs.get('level', logging.INFO)
 		logging.getLogger(__name__).log(level, 'host %s '+fmt, self.ip, *args)
 
-	def sched_send(self, packet):
-		"""Send packet."""
-		try:
-			link = self.routing[packet.dest]
-		except KeyError:
-			self.__log('no entry for %s', packet.dest, level=logging.WARNING)
-		else:
-			self.__log('send-packet %s', packet.dest)
-			link.enqueue(packet)
-
-	def received(self, packet):
-		"""Called (by Link) to deliver a packet to this Host."""
-		if packet.dest[0] != self.ip:
-			self.__log('received packet for %s', packet.dest, level=logging.WARNING)
-		elif isinstance(packet, UdpPacket):
+	def handle(self, packet):
+		"""Called (by Node) to handle a packet."""
+		packet = packet.body # unpack TCP/UDP packet from IP Packet
+		if isinstance(packet, UdpPacket):
 			self.__log('recv-packet UDP %s:%d', packet.origin[0], packet.origin[1])
 			try:
 				self.port_to_udp[packet.dest[1]]._buffer(packet)
@@ -54,6 +43,9 @@ class Host:
 				self.port_to_tcp[packet.dest[1]]._buffer(packet)
 		else:
 			raise Exception("Unrecognized protocol")
+
+	def send(self, packet):
+		Node.send(self, IpPacket(packet.origin[0], packet.dest[0], packet))
 
 	# socket
 

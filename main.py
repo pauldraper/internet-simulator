@@ -107,7 +107,7 @@ def configure_logging(level):
 				self._fmt = '%(time)7.4f %(message)s'
 			return super(Formatter, self).format(record)
 	logging.getLogger().handlers[0].setFormatter(Formatter())
-	logging.getLogger('inet_sim.network.link').setLevel(logging.FATAL)
+	#logging.getLogger('inet_sim.network.link').setLevel(logging.FATAL)
 
 if __name__ == '__main__':
 	configure_logging(logging.INFO)
@@ -115,8 +115,7 @@ if __name__ == '__main__':
 	# intialize network
 	host1 = Host('123.0.0.0')
 	host2 = Host('101.0.0.0')
-	link1 = Link(host1, host2, 0.5, 104000)
-	link2 = Link(host2, host1, 0.5, 104000)
+	link1, link2 = Link.duplex_link(host1, host2, .5, 104000.)
 	link1.loss = .0
 	link2.loss = .0
 	

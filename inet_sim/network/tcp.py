@@ -1,10 +1,9 @@
 from __future__ import division
 
-from .link import Packet
 from .socket import Socket
 from sim import sim, Event, TimeoutException
 
-class TcpPacket(Packet):
+class TcpPacket:
 	"""Represents a TCP packet."""
 
 	mss = 1500 #maximum segment size
@@ -12,7 +11,9 @@ class TcpPacket(Packet):
 	def __init__(self, origin, dest, message=None, seq_num=None, ack_num=None, syn=False, fin=False,
 			timestamp=None):
 		"""Create a TCP packet."""
-		Packet.__init__(self, origin, dest, message)
+		self.origin = origin
+		self.dest = dest
+		self.message = message
 		self.seq_num = seq_num
 		self.ack_num = ack_num
 		self.ack = ack_num is not None
@@ -20,10 +21,9 @@ class TcpPacket(Packet):
 		self.fin = fin
 		self.timestamp = timestamp if timestamp is not None else sim.time()
 
-	@property
-	def size(self):
+	def __len__(self):
 		"""Return the size of this TcpPacket, in bytes."""
-		return Packet.size.fget(self) + 8
+		return 8 + (len(self.message) if self.message else 0)
 		
 	def __str__(self):
 		"""Return a string representation of this TcpPacket."""
@@ -285,7 +285,7 @@ class TcpSocket(Socket):
 				self.state = 'TIME_WAIT'
 				self._log('tcp-state', 'CLOSING <- ACK : TIME_WAIT')
 			sim.sleep(3*self.timeout)
-			self._log('tcp-state TIME_WAIT : CLOSED')
+			self._log('tcp-state', 'TIME_WAIT : CLOSED')
 		
 		elif self.state == 'CLOSE_WAIT':
 			self.state = 'LAST_ACK'
