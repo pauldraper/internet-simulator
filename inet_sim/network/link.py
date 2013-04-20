@@ -53,10 +53,11 @@ class Link:
 			self.__log('queue-overflow %d', packet.id)
 		else:
 			self.__available_queue -= 1
+			self.__log('queue-start %d', packet.id)
 			def send():
-				self.__log('queue-start %d', packet.id)
 				self.__mutex.lock()
 				self.__log('queue-end %d', packet.id)
+				self.__available_queue += 1
 				
 				self.__log('transmit-start %d', packet.id)
 				sim.sleep(packet.size / self.bandwidth)

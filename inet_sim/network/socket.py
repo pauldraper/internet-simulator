@@ -13,7 +13,7 @@ class Socket:
 	def _log(self, event_type, fmt, *args, **kwargs):
 		"""Logs a message, including details about this TcpSocket."""
 		level = kwargs.get('level', logging.INFO)
-		logging.getLogger(__name__).log(level, '%s %s '+fmt, self.local[0], self.local[1], *args, **kwargs)
+		logging.getLogger(__name__).log(level, '%s %s %s '+fmt, self.local[0], self.local[1], event_type, *args, **kwargs)
 
 	def sched_send(self, packet):
 		"""Enqueue the given Packet on the correct outbound Link, depending on the Packet's

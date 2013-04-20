@@ -41,13 +41,13 @@ class Host:
 		if packet.dest[0] != self.ip:
 			self.__log('received packet for %s', packet.dest, level=logging.WARNING)
 		elif isinstance(packet, UdpPacket):
-			self.__log('recv-packet UDP %s', packet.origin)
+			self.__log('recv-packet UDP %s:%d', packet.origin[0], packet.origin[1])
 			try:
 				self.port_to_udp[packet.dest[1]]._buffer(packet)
 			except KeyError:
 				pass
 		elif isinstance(packet, TcpPacket):
-			self.__log('recv-packet TCP %s', packet.origin)
+			self.__log('recv-packet TCP %s:%d', packet.origin[0], packet.origin[1])
 			try:
 				self.origin_to_tcp[packet.origin]._buffer(packet)
 			except KeyError:

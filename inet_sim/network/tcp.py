@@ -1,5 +1,4 @@
 from __future__ import division
-import logging
 
 from .link import Packet
 from .socket import Socket
@@ -80,35 +79,35 @@ class Reno(Congestion):
 		num_bytes = TcpPacket.mss
 		if self.state == Reno.SLOW_START:
 			self.cwnd += num_bytes
-			self.socket._log('cwnd-adjust', '{}'.format(self.cwnd))
+			self.socket._log('tcp-cwnd-adjust', '%d', self.cwnd)
 			if self.cwnd >= self.ssthresh:
 				self.state = Reno.CONGESTION_AVOIDANCE
 		elif self.state == Reno.CONGESTION_AVOIDANCE:
 			self.cwnd += int(num_bytes * TcpPacket.mss / self.cwnd)
-			self.socket._log('cwnd-adjust', '{}'.format(self.cwnd))
+			self.socket._log('tcp-cwnd-adjust', '%d', self.cwnd)
 		elif self.state == Reno.FAST_RECOVERY:
 			self.cwnd = self.ssthresh
-			self.socket._log('cwnd-adjust', '{}'.format(self.cwnd))
+			self.socket._log('tcp-cwnd-adjust', '%d', self.cwnd)
 			self.state = Reno.CONGESTION_AVOIDANCE
 	def dup_ack(self, ack_num):
 		if self.state == Reno.FAST_RECOVERY:
 			self.cwnd += TcpPacket.mss
-			self.socket._log('cwnd-adjust', '{}'.format(self.cwnd))
+			self.socket._log('tcp-cwnd-adjust', '%d', self.cwnd)
 		else:
 			self.dup_ack_count += 1
 			if self.dup_ack_count == 3:
 				self.socket._send_data(ack_num)
-				self.socket._log('loss', 'triple-ack {}'.format(ack_num))
+				self.socket._log('tcp-loss triple-ack', '%d', ack_num)
 				self.ssthresh = int(self.cwnd / 2)
-				self.socket._log('ssthresh-adjust', '{}'.format(self.ssthresh))
+				self.socket._log('tcp-ssthresh-adjust', '%d', self.ssthresh)
 				self.cwnd = self.ssthresh + 3 * TcpPacket.mss
-				self.socket._log('cwnd-adjust', '{}'.format(self.cwnd))
+				self.socket._log('tcp-cwnd-adjust', '%d', self.cwnd)
 				self.state = Reno.FAST_RECOVERY
 	def after_timeout(self):
 		self.ssthresh = int(self.cwnd / 2)
-		self.socket._log('ssthresh-adjust', '{}'.format(self.ssthresh))
+		self.socket._log('tcp-ssthresh-adjust', '%d', self.ssthresh)
 		self.cwnd = TcpPacket.mss
-		self.socket._log('cwnd-adjust', '{}'.format(self.cwnd))
+		self.socket._log('tcp-cwnd-adjust', '%d', self.cwnd)
 		self.state = Reno.SLOW_START
 			
 class Tahoe(Congestion):
@@ -121,19 +120,19 @@ class Tahoe(Congestion):
 	def new_ack(self, num_bytes):
 		if self.state == Tahoe.SLOW_START:
 			self.cwnd += num_bytes
-			self.socket._log('cwnd-adjust', '{}'.format(self.cwnd))
+			self.socket._log('tcp-cwnd-adjust', '%d', self.cwnd)
 			if self.cwnd >= self.ssthresh:
 				self.state = Tahoe.CONGESTION_AVOIDANCE
 		elif self.state == Tahoe.CONGESTION_AVOIDANCE:
 			self.cwnd += int(num_bytes * TcpPacket.mss / self.cwnd)
-			self.socket._log('cwnd-adjust', '{}'.format(self.cwnd))
+			self.socket._log('tcp-cwnd-adjust', '%d', self.cwnd)
 	def dup_ack(self, ack_num):
 		pass
 	def after_timeout(self):
 		self.ssthresh = int(self.cwnd / 2)
-		self.socket._log('ssthresh-adjust', '{}'.format(self.ssthresh))
+		self.socket._log('tcp-ssthresh-adjust', '%d', self.ssthresh)
 		self.cwnd = TcpPacket.mss
-		self.socket._log('cwnd-adjust', '{}'.format(self.cwnd))
+		self.socket._log('tcp-cwnd-adjust', '%d', self.cwnd)
 		self.state = Tahoe.SLOW_START
 
 class TcpSocket(Socket):
@@ -168,7 +167,7 @@ class TcpSocket(Socket):
 	@timeout.setter
 	def timeout(self, value):
 		self._timeout = value
-		self._log('timeout-adjust', '{socket.timeout}'.format(socket=self))
+		self._log('tcp-timeout-adjust', '%d', self.timeout)
 
 	# public methods
 
@@ -196,7 +195,7 @@ class TcpSocket(Socket):
 		socket.host.origin_to_tcp[packet.origin] = socket
 		
 		socket.state = 'SYN_RCVD'
-		socket._log('state', 'LISTEN <- SYN : SYN_RCVD -> SYN+ACK')
+		socket._log('tcp-state', 'LISTEN <- SYN : SYN_RCVD -> SYN+ACK')
 		socket.__sched_send(TcpPacket(socket.local, socket.remote, seq_num=0, ack_num=0, syn=True,
 			timestamp=packet.timestamp))
 		
@@ -210,13 +209,13 @@ class TcpSocket(Socket):
 		self.remote = addr
 		
 		self.state = 'SYN_SENT'
-		self._log('state', 'CLOSED : SYN -> SYN_SENT')
+		self._log('tcp-state', 'CLOSED : SYN -> SYN_SENT')
 		def syn():
 			self.__sched_send(TcpPacket(self.local, self.remote, seq_num=0, syn=True))
 			return self.syn_ack_event.wait(self.timeout)
 		packet = attempt(syn, 10)
 		self.state = 'ESTABLISHED'
-		self._log('state', 'SYN_SENT <- SYN_ACK : ESTABLISHED -> ACK')
+		self._log('tcp-state', 'SYN_SENT <- SYN_ACK : ESTABLISHED -> ACK')
 		self.__sched_send(TcpPacket(self.local, self.remote, ack_num=0, timestamp=packet.timestamp))
 
 	def _send_data(self, start):
@@ -246,7 +245,7 @@ class TcpSocket(Socket):
 						self.out_i = start
 						self.last_loss = time
 						self.timeout *= 2
-						self._log('loss', 'timeout {:.4}'.format(timeout))
+						self._log('tcp-loss', 'timeout %d-%d %.4f', start, end-1, timeout)
 						self.congestion.timeout()
 						self.ack_event.notify()
 				
@@ -272,27 +271,27 @@ class TcpSocket(Socket):
 		
 		if self.state == 'ESTABLISHED' or self.state == 'SYN_RCVD':
 			self.state = 'FIN_WAIT_1'
-			self._log('state', 'ESTABLISHED : FIN -> FIN_WAIT_1')
+			self._log('tcp-state', 'ESTABLISHED : FIN -> FIN_WAIT_1')
 			while self.out_ack_i < len(self.out):
 				self.ack_event.wait()
 			attempt(fin, 10)
 			if self.state == 'FIN_WAIT_1':
 				self.state = 'FIN_WAIT_2'
-				self._log('state', 'FIN_WAIT_1 <- ACK : FIN_WAIT_2')
+				self._log('tcp-state', 'FIN_WAIT_1 <- ACK : FIN_WAIT_2')
 				self.fin_event.wait()
 				self.state = 'TIME_WAIT'
-				self._log('state', 'FIN_WAIT_2 <- FIN : ACK -> TIME_WAIT')
+				self._log('tcp-state', 'FIN_WAIT_2 <- FIN : ACK -> TIME_WAIT')
 			elif self.state == 'CLOSING':
 				self.state = 'TIME_WAIT'
-				self._log('state', 'CLOSING <- ACK : TIME_WAIT')
+				self._log('tcp-state', 'CLOSING <- ACK : TIME_WAIT')
 			sim.sleep(3*self.timeout)
-			self._log('state', 'TIME_WAIT : CLOSED')
+			self._log('tcp-state TIME_WAIT : CLOSED')
 		
 		elif self.state == 'CLOSE_WAIT':
 			self.state = 'LAST_ACK'
-			self._log('state', 'CLOSE_WAIT : FIN -> LAST_ACK')
+			self._log('tcp-state', 'CLOSE_WAIT : FIN -> LAST_ACK')
 			attempt(fin, 10)
-			self._log('state', 'LAST_ACK <- ACK : CLOSED')
+			self._log('tcp-state', 'LAST_ACK <- ACK : CLOSED')
 
 	# I/O
 
@@ -300,12 +299,12 @@ class TcpSocket(Socket):
 		"""Queue the packet on the appropriate link.
 		This function is identical to Socket.scheduler_send, except for its debugging.
 		"""
-		self._log('send', '-> %s' % (packet,))
+		self._log('tcp-send', '-> %s', packet)
 		Socket.sched_send(self, packet)
 
 	def _buffer(self, packet):
 		"""Called by the Host to pass a packet to this Socket."""
-		self._log('recv', '<- %s' % (packet,))   
+		self._log('tcp-recv', '<- %s', packet)   
 		if packet.ack and packet.syn:
 			self.__syn_ack(packet)
 		elif packet.ack:
@@ -326,9 +325,10 @@ class TcpSocket(Socket):
 	def __ack(self, packet):
 		"""Handle an ACK packet."""
 		self.timeout = (self.timeout + 2.5 * (sim.time() - packet.timestamp)) / 2
+		#print sim.time(), packet.timestamp
 		if self.state == 'SYN_RCVD':
 			self.state = 'ESTABLISHED'
-			self._log('state', 'SYN_RCVD <- ACK : ESTABLISHED')
+			self._log('tcp-state', 'SYN_RCVD <- ACK : ESTABLISHED')
 		if packet.ack_num <= len(self.out):
 			self.congestion.ack(packet.ack_num)
 		self.ack_event.notify()
@@ -346,6 +346,7 @@ class TcpSocket(Socket):
 			(i for i,b in enumerate(self.inc[self.inc_i:], start=self.inc_i) if b is None),
 			len(self.inc)
 		)
+		print packet.timestamp, sim.time()
 		self.__sched_send(TcpPacket(self.local, self.remote, ack_num=self.inc_i
 			, timestamp=packet.timestamp))
 		self.data_event.notify()
@@ -354,10 +355,10 @@ class TcpSocket(Socket):
 		"""Handle a FIN packet."""
 		if self.state == 'SYN_RCVD':
 			self.state = 'CLOSE_WAIT'
-			self._log('state', 'SYN_RCVD <- FIN : ACK -> CLOSE_WAIT')
+			self._log('tcp-state', 'SYN_RCVD <- FIN : ACK -> CLOSE_WAIT')
 		elif self.state == 'ESTABLISHED':
 			self.state = 'CLOSE_WAIT'
-			self._log('state', 'ESTABLISHED <- FIN : ACK -> CLOSE_WAIT') 
+			self._log('tcp-state', 'ESTABLISHED <- FIN : ACK -> CLOSE_WAIT') 
 		self.__sched_send(TcpPacket(self.local, self.remote, ack_num=packet.seq_num+1
 			, timestamp=packet.timestamp))
 		self.data_event.notify()

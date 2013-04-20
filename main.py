@@ -107,6 +107,7 @@ def configure_logging(level):
 				self._fmt = '%(time)7.4f %(message)s'
 			return super(Formatter, self).format(record)
 	logging.getLogger().handlers[0].setFormatter(Formatter())
+	logging.getLogger('inet_sim.network.link').setLevel(logging.FATAL)
 
 if __name__ == '__main__':
 	configure_logging(logging.INFO)
@@ -119,7 +120,7 @@ if __name__ == '__main__':
 	link1.loss = .0
 	link2.loss = .0
 	
-	demo_client_server(host1, host2, 3, 3)
+	demo_client_server(host1, host2, 1, 1)
 
 	# clean up
 	del host1
