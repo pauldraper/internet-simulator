@@ -1,22 +1,20 @@
 from __future__ import division
 from datetime import datetime
+import logging
 import random
 
-from inet_sim.log import logger
 from inet_sim.network.host import AF_INET, Host, SOCK_STREAM
 from inet_sim.network.link import Link
-from inet_sim.sim import simulator, sleep, get_stack
-
-log = lambda x: logger.log(x, 1)
+from sim import sim
 
 def generate(self, function, args, avg_delay, duration):
 	"""Generate events with exponential distribution."""
 	frequency = 1 / avg_delay
-	end_time = duration + simulator.scheduler.get_time()
-	yield sleep(random.expovariate(frequency))
-	while end_time <= simulator.scheduler.get_time():
-		yield sleep(random.expovariate(frequency))
-		yield function(*args)
+	end_time = duration + sim.time()
+	sim.sleep(random.expovariate(frequency))
+	while end_time <= sim.time():
+		sim.sleep(random.expovariate(frequency))
+		function(*args)
 
 class Server:
 
@@ -26,23 +24,23 @@ class Server:
 	
 	def run(self):
 		self.socket.listen()
-		yield self.handle_conn((yield self.socket.accept()))
+		self.handle_conn(self.socket.accept())
 		
 	def end(self):
-		yield self.socket.close()
+		self.socket.close()
 
 	def handle_conn(self, socket):
 		message = ''
 		while not message or message[-1] != '\n':
-			message += ''.join((yield socket.recv()))
-		log(message[:-1])
+			message += ''.join(socket.recv())
+		logging.getLogger(__name__).info(message[:-1])
 		if message[:4] == 'time':
-			yield socket.sendall('%s' % (datetime.now(),), self.socket.close)
+			socket.sendall('%s' % (datetime.now(),), self.socket.close)
 		elif message[:4] == 'file':
-			yield socket.sendall(open(message[5:-1], 'rb').read())
+			socket.sendall(open(message[5:-1], 'rb').read())
 		else:
-			yield socket.sendall('unrecognized request')
-		yield socket.close()
+			socket.sendall('unrecognized request')
+		socket.close()
 			
 class TimeClient:
 
@@ -51,16 +49,16 @@ class TimeClient:
 		self.addr = addr
 
 	def get_time(self):
-		yield self.socket.connect(self.addr)
-		yield self.socket.sendall('time\n')
+		self.socket.connect(self.addr)
+		self.socket.sendall('time\n')
 		message = ''
 		while True:
-			m = yield self.socket.recv()
+			m = self.socket.recv()
 			if not m:
 				break
 			message += m
-		log(message)
-		yield self.socket.close()
+		logging.getLogger(__name__).info(message)
+		self.socket.close()
 
 class FileClient:
 
@@ -69,35 +67,50 @@ class FileClient:
 		self.addr = addr
 
 	def download_file(self):
-		yield self.socket.connect(self.addr)
-		yield self.socket.sendall('file large.jpg\n')
+		self.socket.connect(self.addr)
+		self.socket.sendall('file large.jpg\n')
 		file = open('downloaded.jpg', 'wb')
 		while True:
-			m = yield self.socket.recv()
+			m = self.socket.recv()
 			if not m:
 				break
 			file.write(''.join(m))
 		file.close()
-		yield self.socket.close()
+		self.socket.close()
 
 def demo_client_server(host1, host2, n_client=1, n_server=1):
-	simulator.__init__()
+	sim.__init__()
 	server_ip = host2.ip
 	for i in range(0,n_client):
 		def c(client=FileClient(host1, (server_ip, 80+i))):
-			#yield sleep(i*15)
-			yield client.download_file()
-		simulator.new_thread(c())	
+			#sleep(i*15)
+			client.download_file()
+		sim.new_thread(c)	
 	for i in range(0,n_server):
 		server = Server(host2, 80+i)
-		simulator.new_thread(server.run())
-		def stop(server=server):
-			yield sleep(5)
-			yield server.end()
-		simulator.new_thread(stop())
-	simulator.run()
+		sim.new_thread(server.run)
+		#def stop(server=server):
+		#	sim.sleep(5)
+		#	server.end()
+		#sim.new_thread(stop)
+	sim.run()
+
+def configure_logging(level):
+	import sys
+	logging.basicConfig(stream=sys.stdout, level=level)
+	class Formatter(logging.Formatter):
+		def format(self, record):
+			if record.levelno == logging.DEBUG:
+				self._fmt = '%(name)s - %(message)s'
+			else:
+				record.time = sim.time()
+				self._fmt = '%(time)7.4f %(message)s'
+			return super(Formatter, self).format(record)
+	logging.getLogger().handlers[0].setFormatter(Formatter())
 
 if __name__ == '__main__':
+	configure_logging(logging.INFO)
+	
 	# intialize network
 	host1 = Host('123.0.0.0')
 	host2 = Host('101.0.0.0')
@@ -105,8 +118,6 @@ if __name__ == '__main__':
 	link2 = Link(host2, host1, 0.5, 104000)
 	link1.loss = .0
 	link2.loss = .0
-
-	logger.level = 3
 	
 	demo_client_server(host1, host2, 3, 3)
 

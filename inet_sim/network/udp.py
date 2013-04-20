@@ -3,11 +3,8 @@ from collections import deque
 
 from .link import Packet
 from .socket import Socket
-from ..log import logger
 
-log = lambda x: logger.log(x, 2)
-
-class UDPPacket(Packet):
+class UdpPacket(Packet):
 
 	def __init__(self, origin, dest, message):
 		Packet.__init__(self, message)
@@ -33,7 +30,7 @@ class UdpSocket(Socket):
 
 	def sendto(self, message, addr):
 		p = UDPPacket(self.local, addr, message)
-		log('socket-send %s:%s %s:%s' % (p.origin[0], p.origin[1], p.dest[0], p.dest[1]))
+		self._log('socket-send %s:%s %s:%s' % (p.origin[0], p.origin[1], p.dest[0], p.dest[1]))
 		self.host.getLinks(addr[1]).next().enqueue(p)
 
 	def send(self, message):
@@ -61,7 +58,7 @@ class UdpSocket(Socket):
 	def __try_handle(self):
 		if self.packets: #if no packets buffered
 			p = self.packets.pop()
-			log('socket-recv %s:%s %s:%s' % (p.origin[0], p.origin[1], p.dest[0], p.dest[1]))
+			self._log('socket-recv %s:%s %s:%s', p.origin[0], p.origin[1], p.dest[0], p.dest[1])
 			if hasattr(self, 'recvfrom_handler'):
 				scheduler.add(self.recvfrom_handler, [p.message, p.origin], 0)
 				del self.recvfrom_handler

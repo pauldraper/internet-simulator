@@ -1,8 +1,5 @@
 from abc import ABCMeta, abstractmethod
-
-from ..log import logger
-
-log = lambda x: logger.log(x, 2)
+import logging
 
 class Socket:
 	"""Base class for sockets."""
@@ -13,11 +10,19 @@ class Socket:
 		"""Create a socket, with the given host."""
 		self.host = host
 
+	def _log(self, event_type, fmt, *args, **kwargs):
+		"""Logs a message, including details about this TcpSocket."""
+		level = kwargs.get('level', logging.INFO)
+		logging.getLogger(__name__).log(level, '%s %s '+fmt, self.local[0], self.local[1], *args, **kwargs)
+
 	def sched_send(self, packet):
 		"""Enqueue the given Packet on the correct outbound Link, depending on the Packet's
 		destination address.
 		"""
-		next(self.host.get_links(packet.dest[0])).enqueue(packet)
+		try:
+			self.host.routing[packet.dest[0]].enqueue(packet)
+		except KeyError:
+			raise Exception('No routing entry for %s'.format(packet.dest[0]))
 
 	@abstractmethod
 	def _buffer(self, packet):

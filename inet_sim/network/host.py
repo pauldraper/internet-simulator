@@ -1,69 +1,57 @@
-from .link import Link
-from ..log import logger
-from ..network.tcp import TcpSocket
-from ..network.udp import UdpSocket
+import logging
 
-log = lambda x: logger.log(x, 2)
+from .link import Link
+from ..network.tcp import TcpSocket, TcpPacket
+from ..network.udp import UdpSocket, UdpPacket
 
 AF_INET = 'AF_INET' #IP
 SOCK_DGRAM = 'SOCK_DGRAM'   #UDP
 SOCK_STREAM = 'SOCK_STREAM' #TCP
 
 class Host:
-	"""Represent a host on the Internet.
-	A host may have exactly one IP address.
+	"""Represents an endpoint on the Internet.
+	Currently, a Host may have exactly one IP address.
 	"""
-
-	ip_to_host = {} #maps from ip address to host
 
 	def __init__(self, ip):
 		"""Construct a host with the given ip address."""
-		if ip in Host.ip_to_host:
-			raise Exception('duplicate ip address')
 		self.ip = ip
+		self.routing = {}        #ip address to link
+		Link(self, self, 1e-6, 1e9) #loopback
 		self.port_to_udp = {}
 		self.port_to_tcp = {}
 		self.origin_to_tcp = {}
-		self.links = []
-		Host.ip_to_host[ip] = self
-		Link(self, self, 0, 100000)
 
-	def __del__(self):
-		"""Release this host's IP address for reuse."""
-		del Host.ip_to_host[self.ip]
+	def __log(self, fmt, *args, **kwargs):
+		level = kwargs.get('level', logging.INFO)
+		logging.getLogger(__name__).log(level, 'host %s '+fmt, self.ip, *args)
 
-	# network
-
-	def get_host(self, ip):
-		"""Return the Host with the given IP address.
-		This is called on a Host to allow for the possibility of have local IP addresses, but this
-		functionality is not currently in use.
-		"""
-		return Host.ip_to_host[ip]
-
-	def get_links(self, ip):
-		"""Return the links that are connected to this Host."""
-		host = self.get_host(ip)
-		return (l for l in self.links if l.dest == host)
-
-	# data transfer
+	def sched_send(self, packet):
+		"""Send packet."""
+		try:
+			link = self.routing[packet.dest]
+		except KeyError:
+			self.__log('no entry for %s', packet.dest, level=logging.WARNING)
+		else:
+			self.__log('send-packet %s', packet.dest)
+			link.enqueue(packet)
 
 	def received(self, packet):
 		"""Called (by Link) to deliver a packet to this Host."""
 		if packet.dest[0] != self.ip:
-			raise Exception(
-				'{host.ip} received packet for ip {packet.dest}'.format(host=self, packet=packet)
-			)
-		elif packet.protocol == 'UDP':
+			self.__log('received packet for %s', packet.dest, level=logging.WARNING)
+		elif isinstance(packet, UdpPacket):
+			self.__log('recv-packet UDP %s', packet.origin)
 			try:
-				yield self.port_to_upd[packet.dest[1]]._buffer(packet)
+				self.port_to_udp[packet.dest[1]]._buffer(packet)
 			except KeyError:
 				pass
-		elif packet.protocol == 'TCP':
+		elif isinstance(packet, TcpPacket):
+			self.__log('recv-packet TCP %s', packet.origin)
 			try:
-				yield self.origin_to_tcp[packet.origin]._buffer(packet)
+				self.origin_to_tcp[packet.origin]._buffer(packet)
 			except KeyError:
-				yield self.port_to_tcp[packet.dest[1]]._buffer(packet)
+				self.port_to_tcp[packet.dest[1]]._buffer(packet)
 		else:
 			raise Exception("Unrecognized protocol")
 
@@ -76,7 +64,7 @@ class Host:
 		elif domain == AF_INET and sock_type == SOCK_STREAM:
 			return TcpSocket(self)
 
-	def getAvailableUDP(self):
+	def get_available_udp(self):
 		"""Return an available UDP port on this Host."""
 		try:
 			port = next(p for p in range(32768,65536) if p not in self.port_to_udp)
@@ -84,7 +72,7 @@ class Host:
 			raise Exception('No available ports')
 		return (self.ip, port)
 		
-	def getAvailableTcp(self):
+	def get_available_tcp(self):
 		"""Return an available TCP port on this Host."""
 		try:
 			port = next(p for p in range(32768,65536) if p not in self.port_to_tcp)

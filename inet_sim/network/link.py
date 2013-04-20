@@ -1,76 +1,71 @@
 from __future__ import division
-from collections import deque
+import itertools
+import logging
 import random
 
-from ..log import logger
-from ..sim import simulator, sleep
-
-log = lambda x: logger.log(x, 3)
+from sim import sim, Mutex
 
 class Packet:
-	"""Represents a transport-level packet."""
-	id_counter = 0
+	"""Represents a network packet."""
+	
+	id_counter = itertools.count()
 
-	def __init__(self, protocol, origin, dest, message):
-		self.protocol = protocol
+	def __init__(self, origin, dest, message):
+		"""Create a Packet."""
+		self.id = next(Packet.id_counter)
 		self.origin = origin
 		self.dest = dest
 		self.message = message
-		self.id = Packet.id_counter
-		Packet.id_counter += 1
 
 	@property
 	def size(self):
-		return (len(self.message) if self.message else 0) + 4
-
+		"""Return the size, in bytes."""
+		return len(self.message) if self.message else 0
+			
 class Link:
 	"""Represents a unidirectional link."""
 
-	id_counter = 0
+	id_counter = itertools.count()
 
 	def __init__(self, source, dest, prop_delay, bandwidth):
-		"""Creates a Link between the specified Hosts, that has the given performance.
-		(This also adds the Link to the source Host's outgoing links.)"""
-		source.links.append(self)
+		"""Creates a Link between the specified Hosts.
+		This also registers the Link with the source."""
+		self.source = source
 		self.dest = dest
+		source.routing[dest.ip] = self
 		self.prop_delay = prop_delay
 		self.bandwidth = bandwidth
-		self.busy = False
-		self.queue = deque()
-		self.max_queue_size = 48
-		self.id = Link.id_counter
-		self.loss = 0
-		self.reorder = 0
-		Link.id_counter += 1
+		self.id = next(Link.id_counter)
+		self.loss = 0.
+		#self.reorder = 0.
+		self.__available_queue = 48
+		self.__mutex = Mutex()
+		
+	
+	def __log(self, fmt, *args):
+		logging.getLogger(__name__).info('link %s->%s '+fmt, self.source.ip, self.dest.ip, *args)
 
 	def enqueue(self, packet):
 		"""Called to place this packet in the queue."""
-		if self.max_queue_size is not None and self.max_queue_size <= len(self.queue):
-			log('queue-overflow %d %d' % (self.id, packet.id))
-		elif random.random() < self.loss:
-			log('packet-loss %d %d' % (self.id, packet.id))
+		if random.random() < self.loss:
+			self.__log('packet-loss %d', packet.id)
+		elif self.__available_queue <= 0:
+			self.__log('queue-overflow %d', packet.id)
 		else:
-			log('queue-start %d %d' % (self.id, packet.id))
-			self.queue.appendleft(packet)
-			if not self.busy:
-				simulator.new_thread(self.__transmit())
+			self.__available_queue -= 1
+			def send():
+				self.__log('queue-start %d', packet.id)
+				self.__mutex.lock()
+				self.__log('queue-end %d', packet.id)
+				
+				self.__log('transmit-start %d', packet.id)
+				sim.sleep(packet.size / self.bandwidth)
+				self.__log('transmit-end %d', packet.id)
+				self.__mutex.unlock()
+				
+				self.__log('propogate-start %d', packet.id)
+				sim.sleep(self.prop_delay)
+				self.__log('propogate-end %d', packet.id)
+				self.dest.received(packet)
+			sim.new_thread(send)
 
-	def __transmit(self):
-		"""Transmit packet."""
-		packet = self.queue.pop()
-		log('queue-end %d %d' % (self.id, packet.id))
-		
-		log('transmit-start %d %d' % (self.id, packet.id))
-		self.busy = True
-		yield sleep(packet.size / self.bandwidth)
-		log('transmit-end %d %d' % (self.id, packet.id))
-		
-		self.busy = False
-		if self.queue:
-			simulator.new_thread(self.__transmit())
-		
-		log('propogate-start %d %d' % (self.id, packet.id))
-		yield sleep(self.prop_delay)
-		log('propogate-end %d %d' % (self.id, packet.id))
-		
-		yield self.dest.received(packet)
